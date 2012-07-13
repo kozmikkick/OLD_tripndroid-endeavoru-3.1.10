@@ -123,6 +123,7 @@ extern unsigned long tegra_lp0_vec_size;
 extern bool tegra_lp0_vec_relocate;
 extern unsigned long tegra_grhost_aperture;
 extern unsigned long nvdumper_reserved;
+extern unsigned long g_panel_id;
 
 extern struct sys_timer tegra_timer;
 
