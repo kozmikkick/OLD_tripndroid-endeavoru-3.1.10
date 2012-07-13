@@ -95,7 +95,9 @@ static struct pwr_detect_cell pwr_detect_cells[] = {
 	POWER_CELL("pwrdet_cam",	(0x1 << 10), (0x1 << 10), 0xFFFFFFFF),
 	POWER_CELL("pwrdet_pex_ctl",	(0x1 << 11), (0x1 << 11), 0xFFFFFFFF),
 	POWER_CELL("pwrdet_sdmmc1",	(0x1 << 12), (0x1 << 12), 0xFFFFFFFF),
+#ifndef CONFIG_MACH_ENDEAVORU
 	POWER_CELL("pwrdet_sdmmc3",	(0x1 << 13), (0x1 << 13), 0xFFFFFFFF),
+#endif
 	POWER_CELL("pwrdet_sdmmc4",		  0, (0x1 << 14), 0xFFFFFFFF),
 #endif
 };
