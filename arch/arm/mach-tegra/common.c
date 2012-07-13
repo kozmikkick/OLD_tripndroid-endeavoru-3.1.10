@@ -48,6 +48,11 @@
 #include "reset.h"
 #include "devices.h"
 
+#if defined(CONFIG_RESET_REASON)
+#include <linux/interrupt.h>
+#include <mach/restart.h>
+#endif
+
 #define MC_SECURITY_CFG2	0x7c
 
 #define AHB_ARBITRATION_PRIORITY_CTRL		0x4
@@ -94,11 +99,13 @@ unsigned long tegra_vpr_start;
 unsigned long tegra_vpr_size;
 unsigned long tegra_lp0_vec_start;
 unsigned long tegra_lp0_vec_size;
+unsigned long nvdumper_reserved;
 bool tegra_lp0_vec_relocate;
 unsigned long tegra_grhost_aperture = ~0ul;
 static   bool is_tegra_debug_uart_hsport;
 static struct board_info pmu_board_info;
 static struct board_info display_board_info;
+unsigned long g_panel_id;
 static struct board_info camera_board_info;
 
 static int pmu_core_edp = 1200;	/* default 1.2V EDP limit */
@@ -106,6 +113,11 @@ static int board_panel_type;
 static enum power_supply_type pow_supply_type = POWER_SUPPLY_TYPE_MAINS;
 
 void (*arch_reset)(char mode, const char *cmd) = tegra_assert_system_reset;
+
+extern unsigned reboot_battery_first_level;
+
+unsigned (*get_battery_level_cb)(void) = NULL;
+EXPORT_SYMBOL_GPL(get_battery_level_cb);
 
 #define NEVER_RESET 0
 
@@ -118,29 +130,13 @@ void tegra_assert_system_reset(char mode, const char *cmd)
 	void __iomem *reset = IO_ADDRESS(TEGRA_PMC_BASE + 0x00);
 	u32 reg;
 
-	reg = readl_relaxed(reset + PMC_SCRATCH0);
-	/* Writing recovery kernel or Bootloader mode in SCRATCH0 31:30:1 */
-	if (cmd) {
-		if (!strcmp(cmd, "recovery"))
-			reg |= RECOVERY_MODE;
-		else if (!strcmp(cmd, "bootloader"))
-			reg |= BOOTLOADER_MODE;
-		else if (!strcmp(cmd, "forced-recovery"))
-			reg |= FORCED_RECOVERY_MODE;
-		else
-			reg &= ~(BOOTLOADER_MODE | RECOVERY_MODE | FORCED_RECOVERY_MODE);
-	}
-	else {
-		/* Clearing SCRATCH0 31:30:1 on default reboot */
-		reg &= ~(BOOTLOADER_MODE | RECOVERY_MODE | FORCED_RECOVERY_MODE);
-	}
-	writel_relaxed(reg, reset + PMC_SCRATCH0);
 	/* use *_related to avoid spinlock since caches are off */
 	reg = readl_relaxed(reset);
 	reg |= 0x10;
 	writel_relaxed(reg, reset);
 #endif
 }
+
 static int modem_id;
 static int commchip_id;
 static int sku_override;
@@ -148,6 +144,14 @@ static int debug_uart_port_id;
 static enum audio_codec_type audio_codec_name;
 static enum image_type board_image_type = system_image;
 static int max_cpu_current;
+
+void (*tegra_reset)(char mode, const char *cmd);
+
+#if defined(CONFIG_RESET_REASON)
+extern struct htc_reboot_params *reboot_params;
+static atomic_t restart_counter = ATOMIC_INIT(0);
+static int in_panic = 0;
+#endif
 
 /* WARNING: There is implicit client of pllp_out3 like i2c, uart, dsi
  * and so this clock (pllp_out3) should never be disabled.
@@ -430,8 +434,170 @@ static void __init tegra_init_ahb_gizmo_settings(void)
 	gizmo_writel(val, AHB_MEM_PREFETCH_CFG4);
 }
 
+#if defined(CONFIG_RESET_REASON)
+static inline unsigned get_restart_reason(void)
+{
+	return reboot_params->reboot_reason;
+}
+
+static inline void set_restart_reason(unsigned int reason)
+{
+	reboot_params->reboot_reason = reason;
+}
+
+static inline void set_restart_msg(const char *msg)
+{
+	strncpy(reboot_params->msg, msg, sizeof(reboot_params->msg)-1);
+}
+
+/* This function expose others to restart message for entering ramdump mode. */
+void set_ramdump_reason(const char *msg)
+{
+	if(!strcmp("Kernel panic", msg))
+		in_panic = 1;
+	/* only allow write msg before entering arch_rest */
+	if (atomic_read(&restart_counter) != 0)
+		return;
+
+	set_restart_reason(RESTART_REASON_RAMDUMP);
+	set_restart_msg(msg? msg: "");
+}
+
+/* This function is for setting hardware reset reason*/
+void set_hardware_reason(const char *msg)
+{
+	/* We redirect WatchDog to Ramdump for debug. */
+	if(!strcmp("WatchDog_marked", msg)) {
+		set_restart_reason(RESTART_REASON_HARDWARE);
+	} else if(!strcmp("WatchDog", msg)) {
+		set_restart_reason(RESTART_REASON_RAMDUMP);
+	} else if(!strcmp("offmode", msg)) {
+		set_restart_reason(RESTART_REASON_OFFMODE);
+	}
+}
+
+unsigned get_reboot_battery_level(void)
+{
+	unsigned signature;
+	unsigned level;
+
+	printk(KERN_INFO "[BATT]%s:the reboot_battery_first_level:0x%x\n"
+				, __func__, reboot_battery_first_level);
+	signature = (reboot_battery_first_level >> BATTERY_LEVEL_SIG_SHIFT)
+			& BATTERY_LEVEL_SIG_MASK;
+
+	if (signature != BATTERY_LEVEL_SIG)
+		return BATTERY_LEVEL_NO_VALUE;
+
+	level = reboot_battery_first_level & BATTERY_LEVEL_MASK;
+
+	if (level > 100)
+		return BATTERY_LEVEL_NO_VALUE;
+
+	return level;
+}
+
+void set_reboot_battery_level(unsigned level)
+{
+	if ((level >= 0 && level <= 100) || (level == BATTERY_LEVEL_NO_VALUE)) {
+		level |= BATTERY_LEVEL_SIG << BATTERY_LEVEL_SIG_SHIFT;
+		reboot_params->battery_level = level;
+		printk(KERN_INFO "[BATT]%s:record reboot_battery_first_level :0x%x\n"
+					, __func__, reboot_params->battery_level);
+	}
+}
+
+static void tegra_pm_restart(char mode, const char *cmd)
+{
+	printk("tegra_pm_restart(%c,%s)\n", mode, cmd);
+	/* arch_reset should only enter once*/
+	if(atomic_add_return(1, &restart_counter) != 1)
+		return;
+
+	printk(KERN_NOTICE "%s: Going down for restart now.\n", __func__);
+	printk(KERN_NOTICE "%s: mode %d\n", __func__, mode);
+	if (cmd) {
+		printk(KERN_NOTICE "%s: restart command `%s'.\n", __func__, cmd);
+		/* XXX: modem will set msg itself.
+		   Dying msg should be passed to this function directly. */
+		if (mode != RESTART_MODE_MODEM_CRASH)
+			set_restart_msg(cmd);
+	}
+	else
+		printk(KERN_NOTICE "%s: no command restart.\n", __func__);
+	if (in_panic) {
+		set_restart_reason(RESTART_REASON_RAMDUMP);
+		set_restart_msg("Kernel panic");
+	} else if (!cmd) {
+		set_restart_reason(RESTART_REASON_REBOOT);
+	} else if (!strcmp(cmd, "bootloader")) {
+		set_restart_reason(RESTART_REASON_BOOTLOADER);
+	} else if (!strcmp(cmd, "recovery")) {
+		set_restart_reason(RESTART_REASON_RECOVERY);
+	} else if (!strcmp(cmd, "eraseflash")) {
+		set_restart_reason(RESTART_REASON_ERASE_FLASH);
+	} else if(!strcmp(cmd, "offmode")) {
+		set_restart_reason(RESTART_REASON_OFFMODE);
+	} else if (!strncmp(cmd, "oem-", 4)) {
+		unsigned long code;
+
+		code = simple_strtoul(cmd + 4, 0, 16) & 0xff;
+
+		/* oem-97, 98, 99 are RIL fatal */
+		if ((code == 0x97) || (code == 0x98))
+			code = 0x99;
+
+		set_restart_reason(RESTART_REASON_OEM_BASE | code);
+		if (!!get_battery_level_cb && (code == 0x11 || code == 0x33 || code == 0x88))
+			set_reboot_battery_level(get_battery_level_cb());
+
+	} else if (!strcmp(cmd, "force-hard") ||
+			(RESTART_MODE_LEGECY < mode && mode < RESTART_MODE_MAX)
+		  ) {
+		/* The only situation modem user triggers reset is NV restore after erasing EFS. */
+		if (mode == RESTART_MODE_MODEM_USER_INVOKED)
+			set_restart_reason(RESTART_REASON_REBOOT);
+		else
+			set_restart_reason(RESTART_REASON_RAMDUMP);
+	} else {
+		/* unknown command */
+		set_restart_reason(RESTART_REASON_REBOOT);
+	}
+
+	printk(KERN_NOTICE "%s: restart reason 0x%X.\n", __func__, get_restart_reason());
+
+	switch (get_restart_reason()) {
+		case RESTART_REASON_RIL_FATAL:
+		case RESTART_REASON_RAMDUMP:
+			if (!in_panic && mode != RESTART_MODE_APP_WATCHDOG_BARK) {
+				/* Suspend wdog until all stacks are printed */
+				dump_stack();
+			}
+			if (!!get_battery_level_cb)
+				set_reboot_battery_level(get_battery_level_cb());
+			break;
+		case RESTART_REASON_REBOOT:
+		case RESTART_REASON_OFFMODE:
+			if (!!get_battery_level_cb)
+				set_reboot_battery_level(get_battery_level_cb());
+			break;
+	}
+
+	arm_machine_restart(mode, cmd);
+}
+#else
+
+static void tegra_pm_restart(char mode, const char *cmd)
+{
+	tegra_pm_flush_console();
+	arm_machine_restart(mode, cmd);
+}
+
+#endif /* end of CONFIG_RESET_REASON */
+
 void __init tegra_init_early(void)
 {
+	arm_pm_restart = tegra_pm_restart;
 #ifndef CONFIG_SMP
 	/* For SMP system, initializing the reset handler here is too
 	   late. For non-SMP systems, the function that calls the reset
@@ -464,6 +630,15 @@ static int __init tegra_lp0_vec_arg(char *options)
 	return 0;
 }
 early_param("lp0_vec", tegra_lp0_vec_arg);
+
+static int __init tegra_nvdumper_arg(char *options)
+{
+	char *p = options;
+
+	nvdumper_reserved = memparse(p, &p);
+	return 0;
+}
+early_param("nvdumper_reserved", tegra_nvdumper_arg);
 
 static int __init tegra_bootloader_fb_arg(char *options)
 {
@@ -528,6 +703,17 @@ enum power_supply_type get_power_supply_type(void)
 {
 	return pow_supply_type;
 }
+
+static int __init tegra_bootloader_panel_arg(char *options)
+{
+	char *p = options;
+	g_panel_id = memparse(p, &p);
+
+	pr_info("Found panel_vendor: %0lx\n", g_panel_id);
+	return 1;
+}
+__setup("panel_id=", tegra_bootloader_panel_arg);
+
 static int __init tegra_board_power_supply_type(char *options)
 {
 	if (!strcmp(options, "Adapter"))
@@ -856,6 +1042,14 @@ void __init tegra_reserve(unsigned long carveout_size, unsigned long fb_size,
 	} else
 		tegra_lp0_vec_relocate = true;
 
+	if (nvdumper_reserved) {
+		if (memblock_reserve(nvdumper_reserved, NVDUMPER_RESERVED_LEN)) {
+			pr_err("Failed to reserve nvdumper page %08lx@%08x\n",
+			       nvdumper_reserved, NVDUMPER_RESERVED_LEN);
+			nvdumper_reserved = 0;
+		}
+	}
+
 	/*
 	 * We copy the bootloader's framebuffer to the framebuffer allocated
 	 * above, and then free this one.
@@ -897,6 +1091,12 @@ void __init tegra_reserve(unsigned long carveout_size, unsigned long fb_size,
 		tegra_vpr_start,
 		tegra_vpr_size ?
 			tegra_vpr_start + tegra_vpr_size - 1 : 0);
+
+	if (nvdumper_reserved) {
+		pr_info("Nvdumper:               %08lx - %08lx\n",
+			nvdumper_reserved,
+			nvdumper_reserved + NVDUMPER_RESERVED_LEN);
+	}
 }
 
 static struct resource ram_console_resources[] = {
