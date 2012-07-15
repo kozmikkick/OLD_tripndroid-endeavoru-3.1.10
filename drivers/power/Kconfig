@@ -297,6 +297,12 @@ config ADC_TPS80032
 	help
 	  Say Y to include support for TPS80032 ADC driver
 
+config VSYS_ALARM_TPS80032
+	tristate "TPS80032 adc driver"
+	depends on MFD_TPS80031
+	help
+	  Say Y to include support for TPS80032 VSYS LOW ALARM driver
+
 endif # POWER_SUPPLY
 
 config TEGRA_BPC_MGMT
