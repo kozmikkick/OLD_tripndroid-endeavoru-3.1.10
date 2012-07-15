@@ -291,6 +291,12 @@ config CHARGER_TPS65200
 	help
 	 Say Y to include support for TI PTS65200 Main Battery Charger.
 
+config ADC_TPS80032
+	tristate "TPS80032 adc driver"
+	depends on MFD_TPS80031
+	help
+	  Say Y to include support for TPS80032 ADC driver
+
 endif # POWER_SUPPLY
 
 config TEGRA_BPC_MGMT
