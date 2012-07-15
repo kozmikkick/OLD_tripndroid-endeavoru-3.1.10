@@ -80,6 +80,8 @@ source "drivers/gpu/drm/nouveau/Kconfig"
 
 source "drivers/staging/octeon/Kconfig"
 
+source "drivers/staging/ti-st/Kconfig"
+
 source "drivers/staging/serqt_usb2/Kconfig"
 
 source "drivers/staging/spectra/Kconfig"
