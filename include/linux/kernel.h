@@ -384,6 +384,41 @@ static inline char *pack_hex_byte(char *buf, u8 byte)
 extern int hex_to_bin(char ch);
 extern void hex2bin(u8 *dst, const char *src, size_t count);
 
+/* ==== additional macro to define [tag] kernel logs. ==== */
+#ifdef DEBUG
+#define pr_tag_fmt(level, tag, fmt, ...) \
+		printk (level "[" tag "] " KBUILD_MODNAME ":%s():%d: " fmt, \
+				__func__, __LINE__, ##__VA_ARGS__);
+#else
+#define pr_tag_fmt(level, tag, fmt, ...) \
+		printk (level "[" tag "] " fmt, ##__VA_ARGS__);
+#endif
+
+#define pr_tag_err(tag, fmt, ...) \
+		pr_tag_fmt(KERN_ERR, tag, fmt, ##__VA_ARGS__);
+#define pr_tag_info(tag, fmt, ...) \
+		pr_tag_fmt(KERN_INFO, tag, fmt, ##__VA_ARGS__);
+#define pr_device_power_on() \
+		pr_pwr_story(" Turn on")
+#define pr_device_clk_on() \
+		pr_pwr_story("+clk")
+#define pr_device_clk_off() \
+		pr_pwr_story("-clk")
+
+#define PWR_STORY_TAG "[PWR_STORY]"
+#define PWR_DEVICE_TAG "----"
+#define pr_pwr_story(fmt, ...) \
+		pr_info(PWR_STORY_TAG "[" PWR_DEVICE_TAG "]" pr_fmt(fmt) "\n", ##__VA_ARGS__)
+
+#ifdef DEBUG
+#define pr_tag_dbg(tag, fmt, ...) \
+	pr_tag_fmt(KERN_DEBUG, tag, fmt, ##__VA_ARGS__);
+#else
+#define pr_tag_dbg(tag, fmt, ...) \
+    ({ if (0) pr_tag_fmt(KERN_DEBUG, tag, fmt, ##__VA_ARGS__); 0; })
+#endif
+/* ===================================================== */
+
 /*
  * General tracing related utility functions - trace_printk(),
  * tracing_on/tracing_off and tracing_start()/tracing_stop
