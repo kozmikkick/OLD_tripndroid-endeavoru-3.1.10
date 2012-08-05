@@ -863,6 +863,7 @@ struct ieee80211_channel_switch {
  * @addr: address of this interface
  * @p2p: indicates whether this AP or STA interface is a p2p
  *	interface, i.e. a GO or p2p-sta respectively
+ * @dummy_p2p: dummy p2p interface - not used for data
  * @drv_priv: data area for driver use, will always be aligned to
  *	sizeof(void *).
  */
@@ -871,6 +872,9 @@ struct ieee80211_vif {
 	struct ieee80211_bss_conf bss_conf;
 	u8 addr[ETH_ALEN];
 	bool p2p;
+
+	bool dummy_p2p;
+
 	/* must be last */
 	u8 drv_priv[0] __attribute__((__aligned__(sizeof(void *))));
 };
