@@ -67,3 +67,4 @@ obj-$(CONFIG_TEGRA_VIBRATOR_ENR)+= tegra_vibrator_enr.o
 obj-$(CONFIG_SENSORS_BMA250)	       += bma250.o
 obj-$(CONFIG_INPUT_ISL29028_CM3628)    += cm3628.o
 obj-$(CONFIG_INPUT_CAPELLA_CM3629)     += cm3629.o
+obj-$(CONFIG_FSYNC_CONTROL)  += fsync_control.o
