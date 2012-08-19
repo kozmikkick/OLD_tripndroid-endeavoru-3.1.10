@@ -76,7 +76,9 @@ static inline u32 pmc_readl(unsigned long addr)
 /* Some IO pads does not have power detect cells, but still can/should be
  * turned off when no power - set pwrdet_mask=0 for such pads */
 static struct pwr_detect_cell pwr_detect_cells[] = {
+#ifndef CONFIG_MACH_ENDEAVORU
 	POWER_CELL("pwrdet_nand",	(0x1 <<  1), (0x1 <<  1), 0xFFFFFFFF),
+#endif
 	POWER_CELL("pwrdet_uart",	(0x1 <<  2), (0x1 <<  2), 0xFFFFFFFF),
 	POWER_CELL("pwrdet_bb",		(0x1 <<  3), (0x1 <<  3), 0xFFFFFFFF),
 #ifdef	CONFIG_ARCH_TEGRA_2x_SOC
