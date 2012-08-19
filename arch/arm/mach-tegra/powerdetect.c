@@ -92,7 +92,9 @@ static struct pwr_detect_cell pwr_detect_cells[] = {
 #ifdef	CONFIG_ARCH_TEGRA_2x_SOC
 	POWER_CELL("pwrdet_sd",			  0, (0x1 <<  8), 0xFFFFFFFF),
 #endif
+#ifndef CONFIG_MACH_ENDEAVORU
 	POWER_CELL("pwrdet_mipi",		  0, (0x1 <<  9), 0xFFFFFFFF),
+#endif
 #ifndef CONFIG_ARCH_TEGRA_2x_SOC
 	POWER_CELL("pwrdet_cam",	(0x1 << 10), (0x1 << 10), 0xFFFFFFFF),
 	POWER_CELL("pwrdet_pex_ctl",	(0x1 << 11), (0x1 << 11), 0xFFFFFFFF),
