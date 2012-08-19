@@ -851,6 +851,10 @@ static int tegra_sdhci_suspend(struct sdhci_host *sdhci, pm_message_t state)
 {
 	struct sdhci_pltfm_host *pltfm_host = sdhci_priv(sdhci);
 	struct tegra_sdhci_host *tegra_host = pltfm_host->priv;
+	struct platform_device *pdev = to_platform_device(mmc_dev(sdhci->mmc));
+	struct tegra_sdhci_platform_data *plat;
+
+	plat = pdev->dev.platform_data;
 
 	tegra_sdhci_set_clock(sdhci, 0);
 
@@ -865,6 +869,9 @@ static int tegra_sdhci_suspend(struct sdhci_host *sdhci, pm_message_t state)
 		}
 	}
 
+	if (plat->suspend_gpiocfg)
+		plat->suspend_gpiocfg();
+
 	return 0;
 }
 
@@ -872,6 +879,13 @@ static int tegra_sdhci_resume(struct sdhci_host *sdhci)
 {
 	struct sdhci_pltfm_host *pltfm_host = sdhci_priv(sdhci);
 	struct tegra_sdhci_host *tegra_host = pltfm_host->priv;
+	struct platform_device *pdev = to_platform_device(mmc_dev(sdhci->mmc));
+	struct tegra_sdhci_platform_data *plat;
+
+	plat = pdev->dev.platform_data;
+
+	if (plat->resume_gpiocfg)
+		plat->resume_gpiocfg();
 
 	/* Enable the power rails if any */
 	if (tegra_host->card_present) {

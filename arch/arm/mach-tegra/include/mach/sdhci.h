@@ -39,6 +39,8 @@ struct tegra_sdhci_platform_data {
 	unsigned int ddr_clk_limit;
 	unsigned int tap_delay;
 	struct mmc_platform_data mmc_data;
+	int (*suspend_gpiocfg)(void);
+	void (*resume_gpiocfg)(void);
 };
 
 #define ENABLE_GPIO(_pg, _pin, _name, _direction, _state, _pupd) \
