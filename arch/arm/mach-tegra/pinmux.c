@@ -236,6 +236,16 @@ static int tegra_pinmux_set_func(const struct tegra_pingroup_config *config)
 				break;
 			}
 		}
+#if defined(CONFIG_MACH_ENDEAVORU)
+		if (mux < 0)
+		{
+			/*
+			 * follow RSVD(\d) to select a SFIO func to use
+			 */
+			mux = func & 0x3;
+			find = 1;
+		}
+#endif
 	} else {
 		for (i = 0; i < 4; i++) {
 			if (pingroups[pg].funcs[i] == func) {
