@@ -47,19 +47,36 @@ __vet_atags:
 	tst	r2, #0x3			@ aligned?
 	bne	1f
 
-	ldr	r5, [r2, #0]
 #ifdef CONFIG_OF_FLATTREE
 	ldr	r6, =OF_DT_MAGIC		@ is it a DTB?
 	cmp	r5, r6
 	beq	2f
 #endif
-	cmp	r5, #ATAG_CORE_SIZE		@ is first tag ATAG_CORE?
+	ldr	r5, [r2, #0]			@ is first tag ATAG_CORE?
+	cmp	r5, #ATAG_CORE_SIZE
 	cmpne	r5, #ATAG_CORE_SIZE_EMPTY
 	bne	1f
 	ldr	r5, [r2, #4]
 	ldr	r6, =ATAG_CORE
 	cmp	r5, r6
 	bne	1f
+#if defined(CONFIG_MACH_ENDEAVORU)
+#define ATAGS_BLOCK_DISPLACE
+#endif
+
+#if defined(ATAGS_BLOCK_DISPLACE)
+#define ATAGS_START 0x80000100
+# clone 8K from r2 to 0x100
+	mov r6, #0
+	ldr r5, =ATAGS_START
+cp1:
+	ldr r7, [r2, r6]
+	str r7, [r5, r6]
+	add r6, r6, #4
+	cmp r6, #0x2100
+	bne cp1
+	ldr r2, =ATAGS_START
+#endif
 
 2:	mov	pc, lr				@ atag/dtb pointer is ok
 
