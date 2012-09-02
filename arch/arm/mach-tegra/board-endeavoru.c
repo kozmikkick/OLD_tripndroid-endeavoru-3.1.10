@@ -161,7 +161,7 @@ static struct tegra_thermal_data thermal_data = {
 		.desc = #_id,			\
 		.type = EV_KEY,			\
 		.wakeup = _iswake,		\
-		.debounce_interval = 10,	\
+		.debounce_interval = 20,	\
 	}
 
 #define GPIO_IKEY(_id, _irq, _iswake, _deb)	\
