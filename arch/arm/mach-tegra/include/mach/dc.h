@@ -149,6 +149,12 @@ struct tegra_dsi_out {
 	bool		panel_has_frame_buffer;	/* required*/
 	bool		panel_send_dc_frames;
 
+	struct tegra_dsi_cmd	*osc_off_cmd;
+	u16		n_osc_off_cmd;
+
+	struct tegra_dsi_cmd	*osc_on_cmd;
+	u16		n_osc_on_cmd;
+
 	struct tegra_dsi_cmd	*dsi_init_cmd;		/* required */
 	u16		n_init_cmd;			/* required */
 
@@ -560,9 +566,12 @@ struct tegra_dc_pwm_params {
 	unsigned int clk_div;
 	unsigned int clk_select;
 	unsigned int duty_cycle;
+	int backlight_mode;
 };
 
 void tegra_dc_config_pwm(struct tegra_dc *dc, struct tegra_dc_pwm_params *cfg);
+
+void tegra_dc_turn_off_pwm(struct tegra_dc *dc);
 
 int tegra_dsi_send_panel_short_cmd(struct tegra_dc *dc, u8 *pdata, u8 data_len);
 void tegra_dc_host_suspend(struct tegra_dc *dc);
