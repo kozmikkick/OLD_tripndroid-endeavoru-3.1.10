@@ -549,7 +549,11 @@ static void nct1008_power_control(struct nct1008_data *data, bool is_enable)
 {
 	int ret;
 	if (!data->nct_reg) {
+#ifdef CONFIG_MACH_ENDEAVORU
+		data->nct_reg = regulator_get(NULL, data->plat_data.reg_name);
+#else
 		data->nct_reg = regulator_get(&data->client->dev, "vdd");
+#endif
 		if (IS_ERR_OR_NULL(data->nct_reg)) {
 			if (PTR_ERR(data->nct_reg) == -ENODEV)
 				dev_info(&data->client->dev,
