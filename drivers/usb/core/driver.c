@@ -1081,8 +1081,15 @@ static int usb_suspend_interface(struct usb_device *udev,
 	} else {
 		/* Later we will unbind the driver and reprobe */
 		intf->needs_binding = 1;
+#ifdef CONFIG_MACH_ENDEAVORU
+		pr_info("no %s for driver %s?\n",
+				"suspend", driver->name);
+#else
 		dev_warn(&intf->dev, "no %s for driver %s?\n",
 				"suspend", driver->name);
+#endif
+
+
 	}
 
  done:
@@ -1467,9 +1474,11 @@ void usb_autopm_put_interface(struct usb_interface *intf)
 	usb_mark_last_busy(udev);
 	atomic_dec(&intf->pm_usage_cnt);
 	status = pm_runtime_put_sync(&intf->dev);
+#ifndef CONFIG_MACH_ENDEAVORU
 	dev_vdbg(&intf->dev, "%s: cnt %d -> %d\n",
 			__func__, atomic_read(&intf->dev.power.usage_count),
 			status);
+#endif
 }
 EXPORT_SYMBOL_GPL(usb_autopm_put_interface);
 
@@ -1496,9 +1505,11 @@ void usb_autopm_put_interface_async(struct usb_interface *intf)
 	usb_mark_last_busy(udev);
 	atomic_dec(&intf->pm_usage_cnt);
 	status = pm_runtime_put(&intf->dev);
+#ifndef CONFIG_MACH_ENDEAVORU
 	dev_vdbg(&intf->dev, "%s: cnt %d -> %d\n",
 			__func__, atomic_read(&intf->dev.power.usage_count),
 			status);
+#endif
 }
 EXPORT_SYMBOL_GPL(usb_autopm_put_interface_async);
 
@@ -1547,9 +1558,11 @@ int usb_autopm_get_interface(struct usb_interface *intf)
 		pm_runtime_put_sync(&intf->dev);
 	else
 		atomic_inc(&intf->pm_usage_cnt);
+#ifndef CONFIG_MACH_ENDEAVORU
 	dev_vdbg(&intf->dev, "%s: cnt %d -> %d\n",
 			__func__, atomic_read(&intf->dev.power.usage_count),
 			status);
+#endif
 	if (status > 0)
 		status = 0;
 	return status;
@@ -1580,10 +1593,12 @@ int usb_autopm_get_interface_async(struct usb_interface *intf)
 		pm_runtime_put_noidle(&intf->dev);
 	else
 		atomic_inc(&intf->pm_usage_cnt);
+#ifndef CONFIG_MACH_ENDEAVORU
 	dev_vdbg(&intf->dev, "%s: cnt %d -> %d\n",
 			__func__, atomic_read(&intf->dev.power.usage_count),
 			status);
-	if (status > 0 || status == -EINPROGRESS)
+#endif
+	if (status > 0)
 		status = 0;
 	return status;
 }
@@ -1668,11 +1683,11 @@ int usb_runtime_suspend(struct device *dev)
 		return -EAGAIN;
 
 	status = usb_suspend_both(udev, PMSG_AUTO_SUSPEND);
-
+#ifndef CONFIG_MACH_ENDEAVORU
 	/* Allow a retry if autosuspend failed temporarily */
 	if (status == -EAGAIN || status == -EBUSY)
 		usb_mark_last_busy(udev);
-
+#endif
 	/* The PM core reacts badly unless the return code is 0,
 	 * -EAGAIN, or -EBUSY, so always return -EBUSY on an error.
 	 */
