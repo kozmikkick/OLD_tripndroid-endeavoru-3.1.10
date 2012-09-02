@@ -69,6 +69,9 @@ config ARCH_TEGRA_HAS_PCIE
 config ARCH_TEGRA_HAS_SATA
 	bool
 
+config HTC_BATT_CORE
+	bool
+
 config TEGRA_PCI
 	bool "PCIe host controller driver"
 	select PCI
@@ -181,6 +184,15 @@ config MACH_KAI
        select MACH_HAS_SND_SOC_TEGRA_RT5640 if SND_SOC
        help
          Support for NVIDIA KAI development platform
+
+config MACH_ENDEAVORU
+	bool "Endeavoru board"
+	default n
+	depends on ARCH_TEGRA_3x_SOC
+	select NFC
+	select HTC_BATT_CORE
+	help
+	  Support for HTC EndeavorU phone
 
 choice
        prompt "Tegra platform type"
@@ -479,6 +491,45 @@ config TEGRA_BB_XMM_POWER2
 	  (in flashless configuration).  User-mode application must
 	  insert this LKM to initiate 2nd USB enumeration power sequence
 	  - after modem software has been downloaded to flashless device.
+
+config BATTERY_TPS80032
+	bool "HTC battery driver"
+	depends on HTC_BATT_CORE && ADC_TPS80032 && VSYS_ALARM_TPS80032
+	default n
+	help
+	   Add support for HTC battery driver used by the tps80032 chipset
+
+config HTC_HEADSET_MGR
+	tristate "HTC headset manager driver"
+	default n
+	help
+	  Provides support of HTC headset manager.
+
+config HTC_HEADSET_GPIO
+	tristate "HTC GPIO headset detection driver"
+	depends on HTC_HEADSET_MGR
+	default n
+	help
+	  Provides support of HTC GPIO headset detection.
+
+config HTC_HEADSET_PMIC
+	tristate "HTC PMIC headset detection driver"
+	depends on HTC_HEADSET_MGR
+	default n
+	help
+	  Provides support of HTC PMIC headset detection.
+
+config HTC_USB_NOTIFIER
+	tristate "HTC usb notifier register"
+	default n
+	help
+	  If usb status are change, a usb notifier will callback to 
+	  registered function.
+
+config RESET_REASON
+	bool "Enable reset reason for EndeavorU to fix reboot bootloader"
+    	depends on MACH_ENDEAVORU
+    	default n
 
 config TEGRA_PLLM_RESTRICTED
 	bool "Restrict PLLM usage as module clock source"
