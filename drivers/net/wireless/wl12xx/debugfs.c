@@ -454,7 +454,7 @@ static ssize_t vif_count_read(struct file *file, char __user *user_buf,
 
 	return wl1271_format_buffer(user_buf, count,
 				    ppos, "%d\n",
-				    ieee80211_started_vifs_count(wl->hw));
+				    wl12xx_open_count(wl));
 }
 
 static const struct file_operations vif_count_ops = {

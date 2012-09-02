@@ -413,6 +413,45 @@ static void wl1271_free_ap_keys(struct wl1271 *wl, struct wl12xx_vif *wlvif);
 static DEFINE_MUTEX(wl_list_mutex);
 static LIST_HEAD(wl_list);
 
+bool is_p2p_mgmt_on_existing_chan(struct wl1271 *wl)
+{
+	struct wl12xx_vif *mgmt, *wlvif;
+
+	/* find the p2p mgmt vif */
+	wl12xx_for_each_wlvif(wl, mgmt) {
+		if (wl12xx_wlvif_to_vif(mgmt)->dummy_p2p)
+			break;
+	}
+
+	/* p2p mgmt not found */
+	if (!wl12xx_wlvif_to_vif(mgmt)->dummy_p2p)
+		return false;
+
+	/* idle vifs have no channel */
+	if (wl12xx_wlvif_to_vif(mgmt)->bss_conf.idle)
+		return false;
+
+	wl12xx_for_each_wlvif(wl, wlvif) {
+		/* skip this interface */
+		if (mgmt == wlvif)
+			continue;
+
+		/* we only care about p2p interfaces on the same chan */
+		if (!wlvif->p2p)
+			continue;
+
+		/* idle interfaces have no channel */
+		if (wl12xx_wlvif_to_vif(wlvif)->bss_conf.idle)
+			continue;
+
+		if (mgmt->band == wlvif->band &&
+		    mgmt->channel == wlvif->channel)
+			return true;
+	}
+
+	return false;
+}
+
 static int wl1271_check_operstate(struct wl1271 *wl, struct wl12xx_vif *wlvif,
 				  unsigned char operstate)
 {
@@ -1177,6 +1216,20 @@ static irqreturn_t wl12xx_irq(int irq, void *cookie)
 	return IRQ_HANDLED;
 }
 
+u8 wl12xx_open_count(struct wl1271 *wl)
+{
+	u8 open_count = ieee80211_started_vifs_count(wl->hw);
+
+	/*
+	 * don't count the p2p mgmt interface if on the same channel as an
+	 * existing interface. no need to switch to MR for it.
+	 */
+	if (open_count > 1 && is_p2p_mgmt_on_existing_chan(wl))
+		open_count--;
+
+	return open_count;
+}
+
 static int wl12xx_fetch_firmware(struct wl1271 *wl, bool plt)
 {
 	const struct firmware *fw;
@@ -1185,7 +1238,7 @@ static int wl12xx_fetch_firmware(struct wl1271 *wl, bool plt)
 	int ret;
 	u8 open_count;
 
-	open_count = ieee80211_started_vifs_count(wl->hw);
+	open_count = wl12xx_open_count(wl);
 	if (wl->force_mr_fw) {
 		if (open_count <= 1) {
 			wl1271_info("forcing mr firmware");
@@ -2698,7 +2751,8 @@ wl12xx_need_fw_change(struct wl1271 *wl)
 	if (test_bit(WL1271_FLAG_VIF_CHANGE_IN_PROGRESS, &wl->flags))
 		return false;
 #endif
-	open_count = ieee80211_started_vifs_count(wl->hw);
+	open_count = wl12xx_open_count(wl);
+
 	wl1271_debug(DEBUG_CMD, "open_count=%d, current_fw=%d (force_mr=%d)",
 		     open_count, current_fw, wl->force_mr_fw);
 

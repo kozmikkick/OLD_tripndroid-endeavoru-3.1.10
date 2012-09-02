@@ -1976,6 +1976,15 @@ int wl12xx_start_dev(struct wl1271 *wl, struct wl12xx_vif *wlvif)
 	if (ret < 0)
 		goto out_disable;
 
+	/*
+	 * don't ROC if we are on the SR FW in the dummy p2p interface,
+	 * and there's already an existing interface on the same channel
+	 */
+	if (wl->fw_type == WL12XX_FW_TYPE_NORMAL &&
+	    wl12xx_wlvif_to_vif(wlvif)->dummy_p2p &&
+	    is_p2p_mgmt_on_existing_chan(wl))
+		goto out;
+
 	ret = wl12xx_roc(wl, wlvif, wlvif->dev_role_id);
 	if (ret < 0)
 		goto out_stop;

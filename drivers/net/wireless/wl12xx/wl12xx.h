@@ -753,6 +753,8 @@ void wl12xx_update_sta_state(struct wl1271 *wl,
 			     enum ieee80211_sta_state state);
 int wl12xx_init_pll_clock(struct wl1271 *wl, int *selected_clock);
 bool wl12xx_change_fw_if_needed(struct wl1271 *wl);
+bool is_p2p_mgmt_on_existing_chan(struct wl1271 *wl);
+u8 wl12xx_open_count(struct wl1271 *wl);
 
 #define JOIN_TIMEOUT 5000 /* 5000 milliseconds to join */
 
