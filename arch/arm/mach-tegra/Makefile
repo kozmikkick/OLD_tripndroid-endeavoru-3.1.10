@@ -1,6 +1,6 @@
 GCOV_PROFILE := y
 
-subdir-ccflags-y := -Werror
+#subdir-ccflags-y := -Werror
 
 obj-y                                   += ahb.o
 obj-y                                   += apbio.o
