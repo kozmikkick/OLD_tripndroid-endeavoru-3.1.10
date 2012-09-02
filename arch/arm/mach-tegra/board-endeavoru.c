@@ -164,17 +164,6 @@ static struct tegra_thermal_data thermal_data = {
 		.debounce_interval = 10,	\
 	}
 
-#define GPIO_IKEY(_id, _irq, _iswake, _deb)	\
-	{					\
-		.code = _id,			\
-		.gpio = -1,			\
-		.irq = _irq,			\
-		.desc = #_id,			\
-		.type = EV_KEY,			\
-		.wakeup = _iswake,		\
-		.debounce_interval = _deb,	\
-	}
-
 static int enrkey_wakeup(void)
 { 
 	unsigned long status =  
@@ -185,8 +174,7 @@ static int enrkey_wakeup(void)
 static struct gpio_keys_button A_PROJECT_keys[] = {
 	[0] = GPIO_KEY(KEY_VOLUMEUP, PS0, 1),
 	[1] = GPIO_KEY(KEY_VOLUMEDOWN, PW3, 1),
-	[2] = GPIO_KEY(KEY_RESERVED, PU6, 1),
-	[3] = GPIO_IKEY(KEY_POWER, ENT_TPS80031_IRQ_BASE + TPS80031_INT_PWRON, 1, 100),
+	[2] = GPIO_KEY(KEY_POWER, PU6, 1),
  };
 
 static struct gpio_keys_platform_data A_PROJECT_keys_platform_data = {
