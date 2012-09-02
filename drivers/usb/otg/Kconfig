@@ -146,4 +146,10 @@ config FSL_USB2_OTG
 	help
 	  Enable this to support Freescale USB OTG transceiver.
 
+config USB_HOST_MODE
+	boolean "USB Host Mode Support"
+	depends on USB_TEGRA_OTG
+	help
+	  Endeavoru USB host mode
+
 endif # USB || OTG
