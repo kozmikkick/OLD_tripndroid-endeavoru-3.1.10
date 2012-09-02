@@ -197,6 +197,10 @@ struct tps80031_platform_data {
 	bool use_power_off;
 	struct tps80031_pupd_init_data *pupd_init_data;
 	int pupd_init_data_size;
+#ifdef CONFIG_PM
+	void (*suspend_work)(void);
+	void (*resume_work)(void);
+#endif
 };
 
 struct tps80031_bg_platform_data {
@@ -225,6 +229,10 @@ extern int tps80031_force_update(struct device *dev, int sid, int reg,
 extern int tps80031_ext_power_req_config(struct device *dev,
 		unsigned long ext_ctrl_flag, int preq_bit,
 		int state_reg_add, int trans_reg_add);
+
+extern int tps80031_power_off(void);
+
+extern int tps80031_power_off_or_reboot(void);
 
 extern unsigned long tps80031_get_chip_info(struct device *dev);
 
