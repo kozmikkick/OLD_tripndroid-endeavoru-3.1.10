@@ -4716,7 +4716,7 @@ sta_not_found:
 				(ACX_ARP_FILTER_ARP_FILTERING |
 				 ACX_ARP_FILTER_AUTO_ARP),
 				addr);
-		} else {
+		} else if (wlvif->ip_addr) {
 			wlvif->ip_addr = 0;
 			ret = wl1271_acx_arp_ip_filter(wl, wlvif, 0, addr);
 		}
