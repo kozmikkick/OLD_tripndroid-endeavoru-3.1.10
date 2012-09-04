@@ -175,8 +175,8 @@ static int enrkey_wakeup(void)
 static struct gpio_keys_button A_PROJECT_keys[] = {
 	[0] = GPIO_KEY(KEY_VOLUMEUP, PS0, 1),
 	[1] = GPIO_KEY(KEY_VOLUMEDOWN, PW3, 1),
-	[2] = GPIO_KEY(KEY_RESERVED, PU6, 1),
-	[3] = GPIO_IKEY(KEY_POWER, ENT_TPS80031_IRQ_BASE + TPS80031_INT_PWRON, 1, 100),
+	[2] = GPIO_KEY(KEY_POWER, PU6, 1),
+	[3] = GPIO_IKEY(KEY_POWER, ENT_TPS80031_IRQ_BASE + TPS80031_INT_PWRON, 1, 2000),
  };
 
 static struct gpio_keys_platform_data A_PROJECT_keys_platform_data = {
