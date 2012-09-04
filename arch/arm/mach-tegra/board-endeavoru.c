@@ -24,7 +24,6 @@
 #include <linux/kernel.h>
 #include <linux/init.h>
 #include <linux/slab.h>
-#include <linux/ctype.h>
 #include <linux/platform_device.h>
 #include <linux/clk.h>
 #include <linux/serial_8250.h>
@@ -38,12 +37,9 @@
 #include <linux/spi/spi.h>
 #include <linux/tegra_uart.h>
 #include <linux/fsl_devices.h>
-#include <linux/i2c/atmel_mxt_ts.h>
-#include <linux/memblock.h>
 #include <linux/gpio_keys.h>
 #include <linux/synaptics_i2c_rmi.h>
 #include <linux/spi-tegra.h>
-#include <linux/leds.h>
 #include <linux/leds-lp5521.h>
 #include <linux/skbuff.h>
 #include <linux/ti_wilink_st.h>
@@ -53,11 +49,8 @@
 #include <mach/iomap.h>
 #include <mach/irqs.h>
 #include <mach/pinmux.h>
-#include <mach/iomap.h>
-#include <mach/io.h>
 #include <mach/usb_phy.h>
 #include <mach/htc_usb.h>
-#include <mach/i2s.h>
 #include <mach/htc_headset_mgr.h>
 #include <mach/htc_headset_gpio.h>
 #include <mach/htc_headset_pmic.h>
@@ -72,9 +65,7 @@
 
 #include <linux/mfd/tps80031.h>
 #include <linux/tps80032_adc.h>
-#include <linux/disp_debug.h>
 #include <linux/keyreset.h>
-#include <linux/proc_fs.h>
 
 #include "board.h"
 #include "clock.h"
@@ -82,7 +73,6 @@
 #include "baseband-xmm-power.h"
 #include "devices.h"
 #include "gpio-names.h"
-#include "fuse.h"
 #include "wakeups-t3.h"
 #include "pm.h"
 
