@@ -51,7 +51,7 @@
 #include <linux/cm3628.h>
 #include <linux/cm3629.h>
 
-#include <media/ar0832_main.h>
+//#include <media/ar0832_main.h>
 #include <media/s5k3h2y.h>
 #include <media/s5k6a1gx03.h>
 #include <media/ad5823.h>

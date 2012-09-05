@@ -2972,10 +2972,9 @@ deinit:
 
 	/*
 	 * Last AP, have more stations. Configure sleep auth according to STA.
-	 * Don't do this on unintended recovery.
+	 * Don't do this on recovery - everything will be restarted anyway.
 	 */
-	if (test_bit(WL1271_FLAG_RECOVERY_IN_PROGRESS, &wl->flags) &&
-	    !test_bit(WL1271_FLAG_INTENDED_FW_RECOVERY, &wl->flags))
+	if (test_bit(WL1271_FLAG_RECOVERY_IN_PROGRESS, &wl->flags))
 		goto unlock;
 
 	if (wl->ap_count == 0 && wlvif->bss_type == BSS_TYPE_AP_BSS
@@ -4717,7 +4716,7 @@ sta_not_found:
 				(ACX_ARP_FILTER_ARP_FILTERING |
 				 ACX_ARP_FILTER_AUTO_ARP),
 				addr);
-		} else {
+		} else if (wlvif->ip_addr) {
 			wlvif->ip_addr = 0;
 			ret = wl1271_acx_arp_ip_filter(wl, wlvif, 0, addr);
 		}

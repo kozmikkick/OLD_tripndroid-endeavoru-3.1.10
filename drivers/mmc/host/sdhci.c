@@ -1135,11 +1135,24 @@ out:
 	host->clock = clock;
 }
 
+#if defined(CONFIG_MACH_ENDEAVORU)
+static int wifi_is_on = 0;
+extern int enterprise_wifi_power(int on);
+void set_wifi_is_on (int on){
+    wifi_is_on = on;
+}
+EXPORT_SYMBOL(set_wifi_is_on);
+#endif
+
 static void sdhci_set_power(struct sdhci_host *host, unsigned short power)
 {
 	u8 pwr = 0;
 
 	if (power != (unsigned short)-1) {
+#if defined(CONFIG_MACH_ENDEAVORU)
+	if(host->mmc->index==1)
+		enterprise_wifi_power(1);
+#endif
 		switch (1 << power) {
 		case MMC_VDD_165_195:
 			pwr = SDHCI_POWER_180;
@@ -1155,6 +1168,12 @@ static void sdhci_set_power(struct sdhci_host *host, unsigned short power)
 		default:
 			BUG();
 		}
+	}
+	else {
+#if defined(CONFIG_MACH_ENDEAVORU)
+		if(host->mmc->index==1)
+			enterprise_wifi_power(0);
+#endif
 	}
 
 	if (host->pwr == pwr)
@@ -2658,6 +2677,16 @@ int sdhci_add_host(struct sdhci_host *host)
 	    mmc_card_is_removable(mmc) && !(host->ops->get_cd))
 		mmc->caps |= MMC_CAP_NEEDS_POLL;
 
+#if defined(CONFIG_MACH_ENDEAVORU)
+	if(host->mmc->index==1) {
+		mmc->caps |= MMC_CAP_NONREMOVABLE;
+		mmc->caps |= MMC_CAP_DISABLE;
+		mmc->caps |= MMC_CAP_POWER_OFF_CARD;
+		mmc->caps |= MMC_PM_KEEP_POWER;
+        host->flags |= MMC_PM_KEEP_POWER;
+	}
+#endif
+
 	/* UHS-I mode(s) supported by the host controller. */
 	if (host->version >= SDHCI_SPEC_300)
 		mmc->caps |= MMC_CAP_UHS_SDR12 | MMC_CAP_UHS_SDR25;
@@ -2746,7 +2775,7 @@ int sdhci_add_host(struct sdhci_host *host)
 
 		if (max_current_180 > 150)
 			mmc->caps |= MMC_CAP_SET_XPC_180;
-
+#ifndef CONFIG_MACH_ENDEAVORU
 		/* Maximum current capabilities of the host at 1.8V */
 		if (max_current_180 >= 800)
 			mmc->caps |= MMC_CAP_MAX_CURRENT_800;
@@ -2756,6 +2785,7 @@ int sdhci_add_host(struct sdhci_host *host)
 			mmc->caps |= MMC_CAP_MAX_CURRENT_400;
 		else
 			mmc->caps |= MMC_CAP_MAX_CURRENT_200;
+#endif
 	}
 
 	mmc->ocr_avail = ocr_avail;
@@ -2857,14 +2887,23 @@ int sdhci_add_host(struct sdhci_host *host)
 	if (ret)
 		goto untasklet;
 
+// TripNRaVeR: we dont support vmmc
+#ifndef CONFIG_MACH_ENDEAVORU
 	host->vmmc = regulator_get(mmc_dev(mmc), "vmmc");
+#endif
+
+#ifdef CONFIG_MACH_ENDEAVORU
+	host->vmmc = NULL;
+#endif
+
+#ifndef CONFIG_MACH_ENDEAVORU
 	if (IS_ERR(host->vmmc)) {
 		printk(KERN_INFO "%s: no vmmc regulator found\n", mmc_hostname(mmc));
 		host->vmmc = NULL;
 	} else {
 		regulator_enable(host->vmmc);
 	}
-
+#endif
 	sdhci_init(host, 0);
 
 #ifdef CONFIG_MMC_DEBUG
