@@ -22,13 +22,15 @@
 #include <linux/input.h>
 #include <linux/interrupt.h>
 #include <linux/io.h>
+#include <linux/input/mt.h>
 #include <linux/platform_device.h>
 #include <linux/synaptics_i2c_rmi.h>
 #include <linux/slab.h>
 #include <linux/rmi.h>
+
 #include <asm/gpio.h>
 #include <mach/cable_detect.h>
-#include <linux/input/mt.h>
+
 extern int usb_get_connect_type(void);
 
 #define SYN_I2C_RETRY_TIMES 10
@@ -292,7 +294,7 @@ static int i2c_syn_error_handler(struct synaptics_ts_data *ts, uint8_t reset, ch
 	if (reason && fun_name)
 		printk(KERN_ERR "[TP]TOUCH_ERR: I2C Error: %s:%s, reset = %d\n", fun_name, reason, reset);
 	else
-		printk(KERN_INFO "[TP] %s: reason and fun_name can't be null\n", __func__);
+		printk(KERN_INFO "[TP] %s: rason and fun_name can't be null\n", __func__);
 
 	if (reset) {
 		if (ts->power) {
@@ -304,13 +306,8 @@ static int i2c_syn_error_handler(struct synaptics_ts_data *ts, uint8_t reset, ch
 			if (ret < 0)
 				printk(KERN_ERR "[TP] TOUCH_ERR: synaptics i2c error handler power on failed\n");
 		} else {
-			/*	ret = i2c_syn_write_byte_data(ts->client,
-					get_address_base(ts, 0x01, COMMAND_BASE), 0x01);
-				if (ret < 0)
-					printk(KERN_INFO "[TP] TOUCH_ERR: synaptics i2c error handler SW reset failed\n");
-				else
-					printk(KERN_INFO "[TP] synaptics i2c error handler: reset chip by reset command\n");
-				msleep(250);
+			/*
+			msleep(250);
 			*/
 		}
 		ret = synaptics_init_panel(ts);
@@ -369,7 +366,6 @@ static uint32_t syn_crc(uint16_t *data, uint16_t len)
 		sum2 += sum1;
 		sum1 = (sum1 & 0xFFFF) + (sum1 >> 16);
 		sum2 = (sum2 & 0xFFFF) + (sum2 >> 16);
-/*		printk("Data: %x, Sum1: %x, Sum2: %x\n", *data, sum1, sum2); */
 	}
 	return sum1 | (sum2 << 16);
 }
@@ -429,7 +425,6 @@ static int enable_flash_programming(struct synaptics_ts_data *ts, int attr)
 		get_address_base(ts, 0x34, QUERY_BASE), data, 2);
 	if (ret < 0)
 		return i2c_syn_error_handler(ts, 0, "r:1", __func__);
-	/* printk("%s: data: %x, %x\n", __func__, data[0], data[1]); */
 
 	ret = i2c_syn_write(ts->client,
 		get_address_base(ts, 0x34, DATA_BASE) + 2, data, 2);
@@ -506,7 +501,7 @@ static int program_config(struct synaptics_ts_data *ts, uint8_t *config, int att
 
 	ret = i2c_syn_read(ts->client,
 		get_address_base(ts, 0x34, QUERY_BASE), data, 2);
-	/* printk("%s: data: %x, %x\n", __func__, data[0], data[1]); */
+
 	if (ret < 0)
 		return i2c_syn_error_handler(ts, 0, "r:1", __func__);
 
@@ -515,7 +510,6 @@ static int program_config(struct synaptics_ts_data *ts, uint8_t *config, int att
 	if (ret < 0)
 		return i2c_syn_error_handler(ts, 0, "w:2", __func__);
 
-	/* printk("ATT: %d\n", gpio_get_value(attr)); */
 	ret = i2c_syn_write_byte_data(ts->client,
 		get_address_base(ts, 0x34, DATA_BASE) + 18, 0x07);
 	if (ret < 0)
@@ -599,10 +593,10 @@ static int syn_get_sensor(struct synaptics_ts_data *ts, int attr)
 	wait_flash_interrupt(ts, attr);
 	i2c_syn_read(ts->client,
 			get_address_base(ts, 0x34, DATA_BASE) + 6, rdata, 2);
-	//printk(KERN_INFO "[TP] data[0]:0x%x, data[1]:0x%x\n", rdata[0],rdata[1]);
-	//printk(KERN_INFO "[TP] A3:%d A5:%d, A7:%d\n", (rdata[0]>>3)&0x1, 
-	//                                              (rdata[0]>>5)&0x1, 
-	//					      (rdata[0]>>7)&0x1);
+
+	printk(KERN_INFO "[TP] A3:%d A5:%d, A7:%d\n", (rdata[0]>>3)&0x1, 
+	                                              (rdata[0]>>5)&0x1, 
+						      (rdata[0]>>7)&0x1);
 	ret = disable_flash_programming(ts, 1);
 
 	syn_pdt_scan(ts, SYN_MAX_PAGE);
@@ -677,7 +671,7 @@ static int synaptics_input_register(struct synaptics_ts_data *ts)
 		return ret;
 	}
 	ts->input_dev->name = "synaptics-rmi-touchscreen";
-        //set_bit(EV_SYN, ts->input_dev->evbit);
+
 	set_bit(EV_KEY, ts->input_dev->evbit);
 	set_bit(BTN_TOUCH, ts->input_dev->keybit);
 	set_bit(EV_ABS, ts->input_dev->evbit);
@@ -686,7 +680,6 @@ static int synaptics_input_register(struct synaptics_ts_data *ts)
 	set_bit(KEY_HOME, ts->input_dev->keybit);
 	set_bit(KEY_MENU, ts->input_dev->keybit);
 	set_bit(KEY_SEARCH, ts->input_dev->keybit);
-	//set_bit(KEY_APP_SWITCH, ts->input_dev->keybit);
 
 	if (input_mt_init_slots(ts->input_dev, ABS_MT_TRACKING_ID_MAX) < 0)
 	{
@@ -694,10 +687,10 @@ static int synaptics_input_register(struct synaptics_ts_data *ts)
 		printk(KERN_ERR "[TP] TOUCH_ERR: %s: Failed to allocate mt slots\n", __func__);
 		return ret;
 	}
-/*
+
 	printk(KERN_INFO "[TP] input_set_abs_params: mix_x %d, max_x %d, min_y %d, max_y %d\n",
 		ts->layout[0], ts->layout[1], ts->layout[2], ts->layout[3]);
-*/
+
 	input_set_abs_params(ts->input_dev, ABS_MT_POSITION_X,
 		ts->layout[0], ts->layout[1], 0, 0);
 	input_set_abs_params(ts->input_dev, ABS_MT_POSITION_Y,
@@ -705,7 +698,7 @@ static int synaptics_input_register(struct synaptics_ts_data *ts)
 
 	input_set_abs_params(ts->input_dev, ABS_MT_TOUCH_MAJOR, 0, 255, 0, 0);
 	input_set_abs_params(ts->input_dev, ABS_MT_WIDTH_MAJOR, 0, 30, 0, 0);
-	input_set_abs_params(ts->input_dev, ABS_MT_TRACKING_ID, 0, ts->finger_support - 1, 0, 0);
+
 	input_set_abs_params(ts->input_dev, ABS_MT_PRESSURE, 0, 30, 0, 0);
 
 	input_set_abs_params(ts->input_dev, ABS_MT_AMPLITUDE,
@@ -922,7 +915,6 @@ static ssize_t syn_unlock_store(struct device *dev,
 		if (ret < 0)
 			return i2c_syn_error_handler(ts, 0, "w:2", __func__);
 
-		/*printk(KERN_INFO "[TP] %s: Touch Calibration Confirmed\n", __func__);*/
 		ret = i2c_syn_read(ts->client,
 				get_address_base(ts, 0x54, CONTROL_BASE) + 0x10, &data, 1);
 		if (ret < 0)
@@ -1406,10 +1398,6 @@ static int synaptics_init_panel(struct synaptics_ts_data *ts)
 {
 	int ret = 0;
 
-/*	i2c_syn_write_byte_data(ts->client,
-		get_address_base(ts, 0x54, CONTROL_BASE) + 0x10, ts->relaxation);
-	i2c_syn_write_byte_data(ts->client,
-		get_address_base(ts, 0x54, COMMAND_BASE), 0x04);*/
 	/* Configured */
 	ret = i2c_syn_write_byte_data(ts->client,
 			get_address_base(ts, 0x01, CONTROL_BASE), 0x80);
@@ -1423,7 +1411,6 @@ static void synaptics_ts_finger_func(struct synaptics_ts_data *ts)
 {
 	int ret;
 	uint8_t buf[((ts->finger_support * 21 + 3) / 4)];
-	uint8_t data;
 
 	memset(buf, 0x0, sizeof(buf));
 	ret = i2c_syn_read(ts->client,
@@ -1455,16 +1442,13 @@ static void synaptics_ts_finger_func(struct synaptics_ts_data *ts)
 			}
 #endif
 		}
-		if (ts->finger_pressed != finger_pressed
-			/*&& (ts->pre_finger_data[0][0] < 2*/ /* || ts->filter_level[0])*/) {
+		if (ts->finger_pressed != finger_pressed) {
 			finger_press_changed = ts->finger_pressed ^ finger_pressed;
 			finger_release_changed = finger_press_changed & ts->finger_pressed;
 			finger_press_changed &= finger_pressed;
 			ts->finger_pressed = finger_pressed;
 		}
-		if (finger_pressed == 0 /*||
-			((ts->grip_suppression | ts->grip_b_suppression) == finger_pressed
-			&& finger_release_changed)*/) {
+		if (finger_pressed == 0) {
 			if (ts->htc_event == SYN_AND_REPORT_TYPE_B) {
 				for (i = 0; i < ABS_MT_TRACKING_ID_MAX; i++) {
 					if (finger_release_changed & BIT(i)) {
@@ -1520,7 +1504,6 @@ static void synaptics_ts_finger_func(struct synaptics_ts_data *ts)
 							ts->pre_finger_data[0][1]++;
 						} else
 							ts->pre_finger_data[0][1] = 0;
-						/* printk("ts->pre_finger_data[0][1] = %d", ts->pre_finger_data[0][1]); */
 #endif
 					}
 					if (finger_release_changed & BIT(i)) {
@@ -1584,7 +1567,6 @@ static void synaptics_ts_finger_func(struct synaptics_ts_data *ts)
 								ts->pre_finger_data[i + 1][0] = finger_data[i][0];
 								ts->pre_finger_data[i + 1][1] = finger_data[i][1];
 							}
-
 						}
 
 						if (ts->pre_finger_data[0][0] < 2) {
@@ -1631,8 +1613,6 @@ static void synaptics_ts_finger_func(struct synaptics_ts_data *ts)
 								get_address_base(ts, 0x54, COMMAND_BASE), 0x04);
 							if (ret < 0)
 								i2c_syn_error_handler(ts, 0, "w:TCHTHR", __func__);
-							/*printk(KERN_INFO "[TP] %s: Touch Calibration Confirmed\n",
-								__func__);*/
 							ret = i2c_syn_read(ts->client,
 								get_address_base(ts, 0x54, CONTROL_BASE) + 0x10, &data, 1);
 							if (ret < 0)
@@ -1641,9 +1621,8 @@ static void synaptics_ts_finger_func(struct synaptics_ts_data *ts)
 								__func__, data);
 					} else
 #endif
-						if (!ts->finger_count)
-							ts->pre_finger_data[0][0] = 0;
-
+					if (!ts->finger_count)
+						ts->pre_finger_data[0][0] = 0;
 				}
 				base += 5;
 			}
@@ -1773,10 +1752,7 @@ static enum hrtimer_restart synaptics_ts_timer_func(struct hrtimer *timer)
 static void synaptics_ts_noisework_func(struct work_struct *work)
 {
 	struct synaptics_ts_data *ts = container_of(work, struct synaptics_ts_data, work);
-	//ret = i2c_syn_read(ts->client, get_address_base(ts, 0x01, DATA_BASE) + 1, &buf, 1);
 	printk(KERN_INFO "[TP] in timer work function\n");
-	//if (ret < 0) {
-	//	i2c_syn_error_handler(ts, 0, "r", __func__);
 }
 
 static enum hrtimer_restart synaptics_ts_noisetimer_func(struct hrtimer *noise_timer)
@@ -1873,6 +1849,11 @@ static int syn_pdt_scan(struct synaptics_ts_data *ts, int num_page)
 				intr_count += (data[4] & 0x07);
 			}
 			ts->address_table[j + k].function_type = data[5];
+			printk(KERN_INFO
+				"Query: %2.2X, Command: %4.4X, Control: %2X, Data: %2X, INTR: %2X, Funtion: %2X\n",
+				ts->address_table[j + k].query_base , ts->address_table[j + k].command_base,
+				ts->address_table[j + k].control_base, ts->address_table[j + k].data_base,
+				ts->address_table[j + k].interrupt_source, ts->address_table[j + k].function_type);
 		}
 		k += num_function[i];
 	}
@@ -1913,18 +1894,7 @@ static int syn_get_information(struct synaptics_ts_data *ts)
 {
 	uint8_t data[4] = {0}, i, num_channel, *buf;
 	int ret = 0;
-/*	ret = i2c_syn_read(ts->client, get_address_base(ts, 0x01, QUERY_BASE) + 2, data, 2);
-	if (ret < 0)
-		return ret;
-	syn_panel_version = data[0] << 8 | data[1];
-	printk(KERN_INFO "%s: panel_version: %x\n", __func__, syn_panel_version);
 
-	ret = i2c_syn_read(ts->client, get_address_base(ts, 0x34, CONTROL_BASE), data, 4);
-	if (ret < 0)
-		return ret;
-	ts->config_version = data[0] << 24 | data[1] << 16 | data[2] << 8 | data[3];
-	printk(KERN_INFO "%s: config version: %x\n", __func__, ts->config_version);
-*/
 	ret = i2c_syn_read(ts->client, get_address_base(ts, 0x11, QUERY_BASE) + 1, data, 1);
 	if (ret < 0)
 		return i2c_syn_error_handler(ts, 0, "r:1", __func__);
@@ -2031,7 +2001,6 @@ static int synaptics_ts_probe(
 		}
 	}
 
-    //Wait for signal stable after touch power on
     msleep(80); 
 
 	ret = i2c_syn_read(ts->client, 0x00EE, &data, 1);
@@ -2075,13 +2044,6 @@ static int synaptics_ts_probe(
 		if (pdata) {
 			while (pdata->default_config != 1 && pdata->version != syn_panel_version) {
 				printk(KERN_ERR "[TP] finding default_config, default_config:%d, version:%d\n", pdata->default_config, pdata->version);
-#if 0
-				if (pdata->default_config == 0) {
-					printk(KERN_ERR "[TP] TOUCH_ERR: touch controller stays in bootloader mode "
-						"and recovery method doesn't enable\n");
-					goto err_init_failed;
-				}
-#endif
 				pdata++;
 				num++;
 			}
@@ -2150,32 +2112,6 @@ static int synaptics_ts_probe(
 		ts->withFinger = false;
 		ts->htc_event = SYN_AND_REPORT_TYPE_B;
 	}
-/*		if (pdata->abs_x_max  == 0 && pdata->abs_y_max == 0) {
-			ts->layout[0] = ts->layout[2] = 0;
-			ts->layout[1] = ts->max[0];
-			ts->layout[3] = ts->max[1];
-		} else {
-			ts->layout[0] = pdata->abs_x_min;
-			ts->layout[1] = pdata->abs_x_max;
-			ts->layout[2] = pdata->abs_y_min;
-			ts->layout[3] = pdata->abs_y_max;
-		}
-		if (get_address_base(ts, 0x19, FUNCTION)) {
-			i2c_syn_read(ts->client, get_address_base(ts, 0x19, QUERY_BASE) + 1,
-				&ts->key_number, 1);
-			for (i = 0; i < ts->key_number; i++) {
-				ts->key_postion_x[i] =
-					(ts->layout[1] - ts->layout[0]) * (i * 2 + 1) / (ts->key_number * 2)
-					+ ts->layout[0];
-				printk(KERN_INFO "ts->key_postion_x[%d]: %d\n",
-					i, ts->key_postion_x[i]);
-			}
-			ts->key_postion_y = ts->layout[2] +
-				(21 * (ts->layout[3] - ts->layout[2]) / 20);
-			printk(KERN_INFO "ts->key_postion_y: %d\n", ts->key_postion_y);
-		}
-	}*/
-
 #ifndef SYN_DISABLE_CONFIG_UPDATE
 	ret = syn_config_update(ts, pdata->gpio_irq);
 	if (ret < 0) {
@@ -2226,9 +2162,12 @@ static int synaptics_ts_probe(
 			ts->key_postion_x[i] =
 				(ts->layout[1] - ts->layout[0]) * (i * 2 + 1) / (ts->key_number * 2)
 				+ ts->layout[0];
+			printk(KERN_INFO "[TP] ts->key_postion_x[%d]: %d\n",
+				i, ts->key_postion_x[i]);
 		}
 		ts->key_postion_y = ts->layout[2] +
 			(21 * (ts->layout[3] - ts->layout[2]) / 20);
+		printk(KERN_INFO "[TP] ts->key_postion_y: %d\n", ts->key_postion_y);
 	}
 
 	ret = synaptics_init_panel(ts);
@@ -2342,7 +2281,6 @@ err_init_failed:
 	if(ts->address_table != NULL)
 		kfree(ts->address_table);
 err_detect_failed:
-	kfree(ts);
 
 err_alloc_data_failed:
 err_check_functionality_failed:
@@ -2381,14 +2319,13 @@ static int synaptics_ts_remove(struct i2c_client *client)
 static int synaptics_ts_suspend(struct i2c_client *client, pm_message_t mesg)
 {
 	int ret;
-	uint8_t data = 0;
-	struct synaptics_ts_data *ts = i2c_get_clientdata(client);
 
+	struct synaptics_ts_data *ts = i2c_get_clientdata(client);
 	printk(KERN_INFO "[TP] %s: enter\n", __func__);
 
 	if (ts->use_irq) {
-			disable_irq(client->irq);
-			ts->irq_enabled = 0;
+		disable_irq(client->irq);
+		ts->irq_enabled = 0;
 	} else {
 		hrtimer_cancel(&ts->timer);
 		ret = cancel_work_sync(&ts->work);
@@ -2402,6 +2339,8 @@ static int synaptics_ts_suspend(struct i2c_client *client, pm_message_t mesg)
 	}
 #endif
 	ret = cancel_work_sync(&ts->work);
+	if (ret && ts->use_irq) /* if work was pending disable-count is now 2 */
+		enable_irq(client->irq);
 
 	ts->pre_finger_data[0][0] = 0;
 	ts->pre_finger_data[0][1] = 0;
@@ -2418,32 +2357,20 @@ static int synaptics_ts_suspend(struct i2c_client *client, pm_message_t mesg)
 		i2c_syn_error_handler(ts, 1, "force update", __func__);
 	printk("[TP] touch suspend, fast relasxation: %x", ts->relaxation);
 #endif
-	ret = i2c_syn_read(ts->client,
-			get_address_base(ts, 0x11, CONTROL_BASE) + 41, &data, 1);
-	if (ret < 0)
-		i2c_syn_error_handler(ts, 0, "r:0", __func__);
 
-	data = data & ((0x1<<7) - 1);
-
-	ret = i2c_syn_write_byte_data(client,
-			get_address_base(ts, 0x11, CONTROL_BASE) + 41, data);
-	if (ret < 0)
-		i2c_syn_error_handler(ts, 0, "w:0", __func__);
-        printk("[TP] disable palm supression\n");
 #ifdef SYN_SUSPEND_RESUME_POWEROFF
-		if (ts->power)
-			ts->power(0);
-		else 
+	if (ts->power)
+		ts->power(0);
+	else 
 #endif
-		{
-			ret = i2c_syn_write_byte_data(client,
-				get_address_base(ts, 0x01, CONTROL_BASE), 0x01); /* sleep */
-			if (ret < 0)
-				i2c_syn_error_handler(ts, 1, "sleep", __func__);
-		}
-
-			if (ts->power)
-				ts->power(10);
+	{
+		ret = i2c_syn_write_byte_data(client,
+			get_address_base(ts, 0x01, CONTROL_BASE), 0x01); /* sleep */
+		if (ret < 0)
+			i2c_syn_error_handler(ts, 1, "sleep", __func__);
+	}
+	if (ts->power)
+		ts->power(10);
 
 	printk(KERN_INFO "[TP] %s: leave\n", __func__);
 	return 0;
@@ -2454,33 +2381,24 @@ static int synaptics_ts_resume(struct i2c_client *client)
 	int ret;
 	struct synaptics_ts_data *ts = i2c_get_clientdata(client);
 	int i;
-
 	printk(KERN_INFO "[TP] %s: enter\n", __func__);
 
-		if (ts->power)
-			ts->power(11);
+	if (ts->power)
+		ts->power(11);
 
 #ifdef SYN_SUSPEND_RESUME_POWEROFF
-		if (ts->power) {
-			ts->power(1);
-			msleep(100);
-		} else 
+	if (ts->power) {
+		ts->power(1);
+		msleep(100);
+	} else 
 #endif
-		{
-			ret = i2c_syn_write_byte_data(client,
-				get_address_base(ts, 0x01, CONTROL_BASE), 0x00); /* wake */
-			if (ret < 0)
-				i2c_syn_error_handler(ts, 1, "wake up", __func__);
-		}
+	{
+		ret = i2c_syn_write_byte_data(client,
+			get_address_base(ts, 0x01, CONTROL_BASE), 0x00); /* wake */
+		if (ret < 0)
+			i2c_syn_error_handler(ts, 1, "wake up", __func__);
+	}
 
-/*	i2c_syn_write_byte_data(ts->client,
-		get_address_base(ts, 0x54, CONTROL_BASE) + 0x10, ts->relaxation);
-	i2c_syn_write_byte_data(ts->client,
-		get_address_base(ts, 0x54, COMMAND_BASE), 0x04);
-	printk("[%x]%d, [%x]",
-		get_address_base(ts, 0x54, CONTROL_BASE) + 0x10, ts->relaxation,
-		get_address_base(ts, 0x54, COMMAND_BASE));
-*/
 	ret = synaptics_init_panel(ts);
 	if (ret < 0)
 		printk(KERN_ERR "[TP]TOUCH_ERR: synaptics_ts_resume: synaptics init panel failed\n");
@@ -2496,12 +2414,12 @@ static int synaptics_ts_resume(struct i2c_client *client)
 		input_report_abs(ts->input_dev, ABS_MT_POSITION, 1 << 31);
 	}
 
-		if (ts->use_irq) {
-			enable_irq(client->irq);
-			ts->irq_enabled = 1;
-		}
-		else
-			hrtimer_start(&ts->timer, ktime_set(1, 0), HRTIMER_MODE_REL);
+	if (ts->use_irq) {
+		enable_irq(client->irq);
+		ts->irq_enabled = 1;
+	}
+	else
+		hrtimer_start(&ts->timer, ktime_set(1, 0), HRTIMER_MODE_REL);
 
 #ifdef SYN_CABLE_CONTROL
 	if (ts->cable_support) {
