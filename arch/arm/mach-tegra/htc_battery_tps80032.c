@@ -21,9 +21,7 @@
 #include <linux/debugfs.h>
 #include <linux/wakelock.h>
 #include <linux/gpio.h>
-#include <mach/htc_battery_core.h>
-#include <mach/htc_battery_tps80032.h>
-#include <asm/mach-types.h>
+
 #include <linux/workqueue.h>
 #include <linux/slab.h>
 #include <linux/tps65200.h>
@@ -34,19 +32,17 @@
 #include <linux/android_alarm.h>
 #include <linux/suspend.h>
 #include <linux/time.h>
-#include <mach/cable_detect.h>
 #include <linux/delay.h>
+
+#include <asm/mach-types.h>
+
 #include <mach/board_htc.h>
+#include <mach/cable_detect.h>
 #include <mach/restart.h>
+#include <mach/htc_battery_core.h>
+#include <mach/htc_battery_tps80032.h>
 
 /* used for debug if function called */
-#define FUNC_CALL_CHECK 0
-#define WK_MBAT_IN 0
-#define WK_POWER_STORY 0
-#define WK_IS_CABLE_IN 1
-#define TEST_ADC_TIMING 0
-#define WRITE_PWR_SAVE_DISABLE	0x1000
-
 #define BATT_LOG(fmt, ...) do { \
 	struct timespec ts; \
 	struct rtc_time tm; \
@@ -74,11 +70,8 @@
 #endif
 #define PWR_DEVICE_TAG "CHAR"
 
-#if FUNC_CALL_CHECK
-#define CHECK_LOG() BATT_LOG("%s", __func__)
-#else
-#define CHECK_LOG() (void)0
-#endif
+#define WRITE_PWR_SAVE_DISABLE	0x1000
+#define ALL_AC_CHARGING		0x4000000
 
 #define BATT_SUSPEND_CHECK_TIME			3600
 #define BATT_SUSPEND_PHONE_CALL_CHECK_TIME	300
@@ -98,10 +91,6 @@ enum {
 	ATTR_HBOOT_CURR,
 	ATTR_HBOOT_TEMP,
 };
-
-#if WK_MBAT_IN
-static int is_mbat_in;
-#endif
 
 static void mbat_in_func(struct work_struct *work);
 static DECLARE_DELAYED_WORK(mbat_in_struct, mbat_in_func);
@@ -140,9 +129,7 @@ struct htc_battery_info {
 	int power_off_by_id;
 	int check2_value;
 	int first_level_ready;
-#if WK_IS_CABLE_IN
 	int is_cable_in;
-#endif
 	int online;
 
 };
@@ -186,40 +173,8 @@ static ssize_t tps80032_first_batt_show_attributes(struct device *dev,
 					struct device_attribute *attr,
 					char *buf);
 
-static unsigned long hboot_batt_volt = TPS80032_GPADC_FAKE_VALUE;
-int __init batt_voltage_get(char *s)
-{
-	int ret = strict_strtoul(s, 10, &hboot_batt_volt);
-	if (ret < 0)
-		return -EINVAL;
-	return 0;
-}
-__setup("batt_V=", batt_voltage_get);
-
-static unsigned long hboot_batt_curr = TPS80032_GPADC_FAKE_VALUE;
-int __init batt_current_get(char *s)
-{
-	int ret = strict_strtoul(s, 10, &hboot_batt_curr);
-	if (ret < 0)
-		return -EINVAL;
-	return 0;
-}
-__setup("batt_I=", batt_current_get);
-
-static unsigned long hboot_batt_temp = TPS80032_GPADC_FAKE_VALUE;
-int __init batt_temperature_get(char *s)
-{
-	int ret = strict_strtoul(s, 10, &hboot_batt_temp);
-	if (ret < 0)
-		return -EINVAL;
-	return 0;
-}
-__setup("batt_T=", batt_temperature_get);
-
 static void tps_int_notifier_func(int int_reg, int value)
 {
-	CHECK_LOG();
-
 	if (int_reg == CHECK_INT1) {
 		htc_batt_info.rep.over_vchg = (unsigned int)value;
 		htc_battery_core_update();
@@ -229,29 +184,6 @@ static void tps_int_notifier_func(int int_reg, int value)
 					, msecs_to_jiffies(5000));
 	}
 }
-
-#if 0	/* fixme: not used now*/
-static int batt_alarm_config(unsigned long threshold)
-{
-	int rc = 0;
-
-	rc = tps80032_vsys_alarm_state_set(0);
-	if (rc) {
-		BATT_ERR("state_set disabled failed, rc=%d", rc);
-		goto done;
-	}
-
-	rc = tps80032_vsys_alarm_threshold_set(threshold);
-	if (rc) {
-		BATT_ERR("threshold_set failed, rc=%d!", rc);
-		goto done;
-	}
-
-done:
-	return rc;
-}
-#endif
-
 
 static int battery_alarm_notifier_func(struct notifier_block *nfb,
 					unsigned long value, void *data);
@@ -270,17 +202,10 @@ static int battery_alarm_notifier_func(struct notifier_block *nfb,
 
 static void update_wake_lock(int status)
 {
-	CHECK_LOG();
-
 	if (status == CHARGER_USB)
 		wake_lock(&htc_batt_info.vbus_wake_lock);
-#if 0	/* fixme: workaround for AC charging since RTC alarm resume will fail */
-	else if (status == CHARGER_AC)
-		wake_lock(&htc_batt_info.vbus_wake_lock);
-#endif
 	else
-		/* give userspace some time to see the uevent and update
-		   LED state or whatnot...*/
+		/* give userspace some time to see the uevent and update LED state or whatnot...*/
 		wake_lock_timeout(&htc_batt_info.vbus_wake_lock, HZ * 5);
 }
 
@@ -289,10 +214,7 @@ static void reverse_current_func(struct work_struct *work)
 	char message[16];
 	char *envp[] = { message, NULL };
 
-	CHECK_LOG();
-
-	scnprintf(message, 16, "REVERSE_CURR=%d",
-					htc_batt_info.check2_value);
+	scnprintf(message, 16, "REVERSE_CURR=%d", htc_batt_info.check2_value);
 
 	update_wake_lock(htc_batt_info.rep.charging_source);
 
@@ -304,14 +226,6 @@ static void usb_status_notifier_func(int online)
 	char message[16];
 	char *envp[] = { message, NULL };
 
-	CHECK_LOG();
-
-	if (online == htc_batt_info.online) {
-		BATT_LOG("%s: charger type (%u) same return.",
-			__func__, online);
-		return;
-	}
-
 	mutex_lock(&htc_batt_info.info_lock);
 
 	htc_batt_info.online = online;
@@ -319,36 +233,21 @@ static void usb_status_notifier_func(int online)
 	case CONNECT_TYPE_USB:
 		BATT_LOG("cable USB");
 		htc_batt_info.rep.charging_source = CHARGER_USB;
-#if WK_IS_CABLE_IN
 		htc_batt_info.is_cable_in = 1;
-#endif
 		break;
 	case CONNECT_TYPE_AC:
 		BATT_LOG("cable AC");
 		htc_batt_info.rep.charging_source = CHARGER_AC;
-#if WK_IS_CABLE_IN
 		htc_batt_info.is_cable_in = 1;
-#endif
 		break;
 	case CONNECT_TYPE_UNKNOWN:
 		BATT_ERR("unknown cable");
 		htc_batt_info.rep.charging_source = CHARGER_USB;
-#if WK_IS_CABLE_IN
 		htc_batt_info.is_cable_in = 1;
-#endif
 		break;
-#if 0	// fixme: no internal burst
-	case CONNECT_TYPE_INTERNAL:
-		BATT_LOG("delivers power to VBUS from battery");
-		htc_battery_set_charging(POWER_SUPPLY_ENABLE_INTERNAL);
-		mutex_unlock(&htc_batt_info.info_lock);
-		return;
-#endif
 	case CONNECT_TYPE_NONE:
 		if ( !!(get_kernel_flag() & WRITE_PWR_SAVE_DISABLE) ) {
-#if WK_IS_CABLE_IN
 			htc_batt_info.is_cable_in = 0;
-#endif
 			mutex_unlock(&htc_batt_info.info_lock);
 			kernel_power_off();
 			break;
@@ -357,17 +256,14 @@ static void usb_status_notifier_func(int online)
 	default:
 		BATT_LOG("No cable exists");
 		htc_batt_info.rep.charging_source = CHARGER_BATTERY;
-#if WK_IS_CABLE_IN
 		htc_batt_info.is_cable_in = 0;
-#endif
 		break;
 	}
 	is_alarm_not_work = 0;
 	htc_batt_timer.alarm_timer_flag =
 			(unsigned int)htc_batt_info.rep.charging_source;
 
-	scnprintf(message, 16, "CHG_SOURCE=%d",
-					htc_batt_info.rep.charging_source);
+	scnprintf(message, 16, "CHG_SOURCE=%d", htc_batt_info.rep.charging_source);
 
 	update_wake_lock(htc_batt_info.rep.charging_source);
 	mutex_unlock(&htc_batt_info.info_lock);
@@ -379,8 +275,6 @@ static int htc_battery_set_charging(int ctl)
 {
 	int rc = 0;
 
-	CHECK_LOG();
-
 	if (htc_batt_info.charger == SWITCH_CHARGER_TPS65200)
 		rc = tps_set_charger_ctrl(ctl);
 
@@ -391,10 +285,6 @@ static int htc_batt_charger_control(enum charger_control_flag control)
 {
 	char message[16] = "CHARGERSWITCH=";
 	char *envp[] = { message, NULL };
-
-	CHECK_LOG();
-
-	BATT_LOG("%s: switch charger to mode: %u", __func__, control);
 
 	switch (control) {
 	case STOP_CHARGER:
@@ -414,8 +304,6 @@ static int htc_batt_charger_control(enum charger_control_flag control)
 
 static void htc_batt_phone_call_notification(int phone_call)
 {
-	CHECK_LOG();
-
 	BATT_LOG("%s:Phone call notified with value %d", __func__, phone_call);
 	htc_batt_phone_call = phone_call;
 }
@@ -424,8 +312,6 @@ static void htc_batt_set_full_level(int percent)
 {
 	char message[16];
 	char *envp[] = { message, NULL };
-
-	CHECK_LOG();
 
 	BATT_LOG("%s: set full level as %d", __func__, percent);
 
@@ -441,8 +327,6 @@ static ssize_t htc_battery_show_batt_attr(struct device_attribute *attr,
 {
 	int len = 0;
 
-	CHECK_LOG();
-
 	len += scnprintf(buf + len, PAGE_SIZE - len,
 			"%s", htc_batt_info.debug_log);
 	return len;
@@ -452,9 +336,6 @@ static int htc_batt_open(struct inode *inode, struct file *filp)
 {
 	int ret = 0;
 
-	CHECK_LOG();
-
-	BATT_LOG("%s: open misc device driver.", __func__);
 	spin_lock(&htc_batt_info.batt_lock);
 
 	if (!htc_batt_info.first_level_ready) {
@@ -473,9 +354,6 @@ not_ready:
 
 static int htc_batt_release(struct inode *inode, struct file *filp)
 {
-	CHECK_LOG();
-
-	BATT_LOG("%s: release misc device driver.", __func__);
 	spin_lock(&htc_batt_info.batt_lock);
 	htc_batt_info.is_open = 0;
 	spin_unlock(&htc_batt_info.batt_lock);
@@ -485,7 +363,6 @@ static int htc_batt_release(struct inode *inode, struct file *filp)
 
 static int htc_batt_get_battery_info(struct battery_info_reply *htc_batt_update)
 {
-	CHECK_LOG();
 
 	htc_batt_update->batt_vol = htc_batt_info.rep.batt_vol;
 	htc_batt_update->batt_id = htc_batt_info.rep.batt_id;
@@ -510,45 +387,16 @@ static int htc_batt_get_battery_info(struct battery_info_reply *htc_batt_update)
 
 static void batt_set_check_timer(u32 seconds)
 {
-	CHECK_LOG();
 
 	mod_timer(&htc_batt_timer.batt_timer,
 			jiffies + msecs_to_jiffies(seconds * 1000));
 }
-
-#if 0	/* fixme: not used now, will build warning */
-static int32_t htc_batt_volt_low(void)
-{
-	int ret = 0;
-	int32_t adc_value;
-	int low_count = 0;
-	int i;
-	CHECK_LOG();
-
-	for (i = 0; i < ADC_REPLY_ARRAY_SIZE; i++) {
-		ret = tps80032_adc_select_and_read(
-				&adc_value,
-				BATT_VOLT_CHANNEL);
-		if (ret) {
-			BATT_ERR("battery voltage adc read failed");
-			return 0;
-		}
-
-		if (adc_value < MV_TO_ADC_BITS(3500 / 4))
-			low_count++;
-		mdelay(1);
-	}
-	return (low_count > ADC_REPLY_ARRAY_SIZE / 2) ? 1 : 0;
-}
-#endif
 
 static int32_t htc_batt_get_battery_adc(void)
 {
 	int ret = 0;
 	struct battery_adc_reply adc;
 	int i, temp;
-
-	CHECK_LOG();
 
 	for (i = 0; i < ADC_REPLY_ARRAY_SIZE; i++) {
 		/* Read battery voltage adc data. */
@@ -588,9 +436,6 @@ static int32_t htc_batt_get_battery_adc(void)
 		else
 			adc.adc_voltage[i] = temp;
 
-#if WK_MBAT_IN
-		if (is_mbat_in) {
-#endif
 			/* Read battery temperature adc data. */
 			ret = tps80032_adc_select_and_read(
 					adc.adc_temperature + i,
@@ -603,50 +448,29 @@ static int32_t htc_batt_get_battery_adc(void)
 					BATT_ID_CHANNEL);
 			if (ret)
 				goto get_adc_failed;
-#if WK_MBAT_IN
-		} else {
-			adc.adc_temperature[i] = TPS80032_GPADC_FAKE_VALUE;
-			adc.adc_battid[i] = TPS80032_GPADC_FAKE_VALUE;
-		}
-#endif
 		mdelay(1);
 	}
 
 	memcpy(&htc_batt_info.adc_data, &adc,
 		sizeof(struct battery_adc_reply));
 
-#if 0	/* for debug adc */
-	for (i = 0; i < ADC_REPLY_ARRAY_SIZE; i++) {
-		BATT_LOG("index@%d:volt=%x, curr=%x, temp=%x, id=%x, vzero_clb=%x"
-			, i, adc.adc_voltage[i], adc.adc_current[i]
-			, adc.adc_temperature[i], adc.adc_battid[i]
-			, adc.adc_vzero_clb[i]);
-	}
-	ret = 0;
-#endif
 get_adc_failed:
 	return ret;
 }
 
 static void batt_regular_timer_handler(unsigned long data)
 {
-	CHECK_LOG();
-
 	wake_lock(&htc_batt_timer.battery_lock);
 	queue_work(htc_batt_timer.batt_wq, &htc_batt_timer.batt_work);
 }
 
 static void batt_first_timer_handler(unsigned long data)
 {
-	CHECK_LOG();
-
 	queue_work(htc_batt_timer.batt_wq, &htc_batt_timer.batt_first_work);
 }
 
 static void batt_check_alarm_handler(struct alarm *alarm)
 {
-	CHECK_LOG();
-
 	BATT_LOG("alarm handler, but do nothing.");
 	return;
 }
@@ -658,22 +482,13 @@ static void batt_work_func(struct work_struct *work)
 	char battery_alarm[16];
 	char *envp[] = { total_time, battery_alarm, NULL };
 
-	CHECK_LOG();
-
 	rc = htc_batt_get_battery_adc();
 	if (rc)
 		BATT_ERR("Read ADC failed!");
 
-	/*read tps80032 VBUS_DETECT state*/
-	rc = tps80032_read_vbus_detection();
-	BATT_LOG("tps80032 VBUS_DETECT:%d OPA_MODE:%d BOOST_HW_PWR:%d",rc,
-			tps80032_read_opa_mode(),tps80032_read_boots_hw_pwr());
+	scnprintf(total_time, sizeof(total_time), "TOTAL_TIME=%lu", htc_batt_timer.total_time_ms);
 
-	scnprintf(total_time, sizeof(total_time), "TOTAL_TIME=%lu",
-					htc_batt_timer.total_time_ms);
-
-	scnprintf(battery_alarm, sizeof(battery_alarm), "BATT_ALARM=%u",
-					htc_batt_timer.batt_alarm_status);
+	scnprintf(battery_alarm, sizeof(battery_alarm), "BATT_ALARM=%u", htc_batt_timer.batt_alarm_status);
 
 	kobject_uevent_env(&htc_batt_info.batt_timer_kobj, KOBJ_CHANGE, envp);
 	htc_batt_timer.total_time_ms = 0;
@@ -681,6 +496,7 @@ static void batt_work_func(struct work_struct *work)
 	htc_batt_timer.batt_alarm_status = 0;
 	batt_set_check_timer(htc_batt_timer.time_out);
 	wake_unlock(&htc_batt_timer.battery_lock);
+
 	if (is_alarm_not_work == 1) {
 		/* force wake lock once when charging*/
 		mutex_lock(&htc_batt_info.info_lock);
@@ -691,7 +507,6 @@ static void batt_work_func(struct work_struct *work)
 			is_alarm_not_work = 0;
 		mutex_unlock(&htc_batt_info.info_lock);
 	}
-
 	return;
 }
 
@@ -709,63 +524,26 @@ static void batt_first_work_func(struct work_struct *work)
 	int rc;
 	unsigned long flags;
 
-	CHECK_LOG();
-
 	rc = htc_batt_get_battery_adc();
-	if (rc) {
-		BATT_ERR("Get first battery ADC value failed!");
+	if (rc)
 		return;
-	}
 
 	get_battery_level_cb = tps80032_batt_get_battery_level;
 
 	spin_lock_irqsave(&htc_batt_info.batt_lock, flags);
 	htc_batt_info.first_level_ready = 1;
 	spin_unlock_irqrestore(&htc_batt_info.batt_lock, flags);
-	BATT_LOG("First level read");
 }
 
-#if WK_POWER_STORY
-static void battery_power_story_board(void)
-{
-	CHECK_LOG();
-
-	switch (htc_batt_info.rep.charging_source) {
-	case CHARGER_USB: {
-		if (htc_batt_info.rep.charging_enabled != 0)
-			pr_pwr_story("USB, %dmA\n", htc_batt_info.rep.batt_current);
-		else
-			pr_pwr_story("USB, 0mA\n");
-		break;
-	}
-	case CHARGER_AC: {
-		if (htc_batt_info.rep.charging_enabled != 0)
-			pr_pwr_story("AC, %dmA\n", htc_batt_info.rep.batt_current);
-		else
-			pr_pwr_story("AC, 0mA\n");
-		break;
-	}
-	case CHARGER_BATTERY: {
-		pr_pwr_story("BATTERY\n");
-		break;
-	}
-	default:
-		pr_pwr_story("UNKNOWN\n");
-		break;
-	}
-}
-#else
 static void battery_power_story_board(void)
 {
 	/* do nothing */
 }
-#endif
 
 static long htc_batt_ioctl(struct file *filp,
 			unsigned int cmd, unsigned long arg)
 {
 	int ret = 0;
-	CHECK_LOG();
 
 	wake_lock(&htc_batt_timer.battery_lock);
 
@@ -835,22 +613,9 @@ static long htc_batt_ioctl(struct file *filp,
 			}
 		}
 
-#if 0	/* fixme: cheat framework before overloading is ready for all project */
-		if (htc_batt_info.rep.batt_vol >= 3100
-			&& htc_batt_info.rep.charging_source != CHARGER_BATTERY
-			&& htc_batt_info.rep.level < 2) {
-			BATT_LOG("Workaround: Cheat framework to prevent shutdown with cable"
-				 "real level:%d", htc_batt_info.rep.level);
-			htc_batt_info.rep.level = 2;
-		}
-#endif
-
 		battery_power_story_board();
 
 		mutex_unlock(&htc_batt_info.info_lock);
-
-		BATT_LOG("ioctl: battery level update: %u",
-			htc_batt_info.rep.level);
 
 		htc_battery_core_update();
 		break;
@@ -863,25 +628,6 @@ static long htc_batt_ioctl(struct file *filp,
 		}
 		break;
 	case HTC_BATT_IOCTL_SET_VOLTAGE_ALARM: {
-#if 0	/* fixme: not used now*/
-		struct battery_vol_alarm alarm_data;
-
-		if (copy_from_user(&alarm_data, (void *)arg,
-					sizeof(struct battery_vol_alarm))) {
-			BATT_ERR("user set batt alarm failed!");
-			ret = -EFAULT;
-			break;
-		}
-
-		htc_batt_timer.batt_alarm_status = 0;
-		htc_batt_timer.batt_alarm_enabled = alarm_data.enable;
-		ret = batt_alarm_config(alarm_data.lower_threshold);
-		if (ret)
-			BATT_ERR("batt alarm config failed!");
-
-		BATT_LOG("Set vsys alarm threshold: %d, Enabled:%u.",
-			alarm_data.lower_threshold, alarm_data.enable);
-#endif
 		break;
 	}
 	case HTC_BATT_IOCTL_SET_ALARM_TIMER_FLAG: {
@@ -897,7 +643,6 @@ static long htc_batt_ioctl(struct file *filp,
 		break;
 	}
 	default:
-		BATT_ERR("%s: no matched ioctl cmd", __func__);
 		break;
 	}
 
@@ -910,7 +655,6 @@ static long htc_batt_ioctl(struct file *filp,
 static void mbat_in_func(struct work_struct *work)
 {
 	int is_power_off;
-	CHECK_LOG();
 
 	mutex_lock(&htc_batt_info.info_lock);
 	is_power_off = htc_batt_info.power_off_by_id;
@@ -925,12 +669,6 @@ static void mbat_in_func(struct work_struct *work)
 static irqreturn_t mbat_int_handler(int irq, void *data)
 {
 	struct htc_battery_platform_data *pdata = data;
-
-	CHECK_LOG();
-
-#if WK_MBAT_IN
-	is_mbat_in = 0;
-#endif
 
 	disable_irq_nosync(pdata->gpio_mbat_in);
 
@@ -972,8 +710,6 @@ static int htc_battery_prepare(struct device *dev)
 	ktime_t slack = ktime_set(0, 0);
 	ktime_t next_alarm;
 
-	CHECK_LOG();
-
 	target_interval_ms = 0;
 
 	del_timer_sync(&htc_batt_timer.batt_timer);
@@ -983,8 +719,7 @@ static int htc_battery_prepare(struct device *dev)
 			htc_batt_timer.batt_system_jiffies) * MSEC_PER_SEC / HZ;
 	htc_batt_timer.batt_system_jiffies = jiffies;
 	getnstimeofday(&xtime);
-	htc_batt_timer.batt_suspend_ms = xtime.tv_sec * MSEC_PER_SEC +
-					xtime.tv_nsec / NSEC_PER_MSEC;
+	htc_batt_timer.batt_suspend_ms = xtime.tv_sec * MSEC_PER_SEC + xtime.tv_nsec / NSEC_PER_MSEC;
 
 	if (htc_batt_timer.alarm_timer_flag)
 		time_out = htc_batt_timer.time_out;
@@ -1026,8 +761,6 @@ static void htc_battery_complete(struct device *dev)
 	unsigned long resume_ms;
 	unsigned long check_time;
 	struct timespec xtime;
-
-	CHECK_LOG();
 
 	del_timer_sync(&htc_batt_timer.batt_timer);
 	cancel_work_sync(&htc_batt_timer.batt_work);
@@ -1072,16 +805,11 @@ static void htc_battery_complete(struct device *dev)
 	if ((htc_batt_timer.total_time_ms >= check_time) ||
 	    (!!htc_batt_timer.batt_alarm_status)) {
 		wake_lock(&htc_batt_timer.battery_lock);
-		BATT_LOG("Check battery status for resume at checking time up");
 		queue_work(htc_batt_timer.batt_wq, &htc_batt_timer.batt_work);
 	} else if (htc_batt_timer.alarm_timer_flag)
 		batt_set_check_timer(((check_time - htc_batt_timer.total_time_ms) / MSEC_PER_SEC) + 1);
 	else
 		batt_set_check_timer(htc_batt_timer.time_out);
-
-#if 0  /* fixme: not require this now */
-	tps80032_vsys_alarm_state_set(0);
-#endif
 }
 
 static struct dev_pm_ops htc_battery_tps80032_pm_ops = {
@@ -1089,7 +817,6 @@ static struct dev_pm_ops htc_battery_tps80032_pm_ops = {
 	.complete = htc_battery_complete,
 };
 
-#if WK_IS_CABLE_IN
 extern int (*tps80031_is_cable_in)(void);
 static int is_cable_in(void)
 {
@@ -1099,13 +826,9 @@ static int is_cable_in(void)
 	mutex_unlock(&htc_batt_info.info_lock);
 	return value;
 }
-#endif
 
 static struct device_attribute tps80032_batt_attrs[] = {
 	__ATTR(reboot_level, S_IRUGO, tps80032_first_batt_show_attributes, NULL),
-	__ATTR(hboot_volt, S_IRUGO, tps80032_first_batt_show_attributes, NULL),
-	__ATTR(hboot_curr, S_IRUGO, tps80032_first_batt_show_attributes, NULL),
-	__ATTR(hboot_temp, S_IRUGO, tps80032_first_batt_show_attributes, NULL),
 	};
 
 static ssize_t tps80032_first_batt_show_attributes(struct device *dev,
@@ -1119,15 +842,6 @@ static ssize_t tps80032_first_batt_show_attributes(struct device *dev,
 		if (off == ATTR_REBOOT_LEVEL)
 			i += scnprintf(buf + i, PAGE_SIZE - i, "%d\n",
 				get_reboot_battery_level());
-		else if (off == ATTR_HBOOT_VOLT)
-			i += scnprintf(buf + i, PAGE_SIZE - i, "%u\n",
-				(unsigned) (hboot_batt_volt & 0xFFFFFFFF));
-		else if (off == ATTR_HBOOT_CURR)
-			i += scnprintf(buf + i, PAGE_SIZE - i, "%u\n",
-				(unsigned) (hboot_batt_curr & 0xFFFFFFFF));
-		else if (off == ATTR_HBOOT_TEMP)
-			i += scnprintf(buf + i, PAGE_SIZE - i, "%u\n",
-				(unsigned) (hboot_batt_temp & 0xFFFFFFFF));
 		else
 			i = -EINVAL;
 	} else
@@ -1164,8 +878,6 @@ static int htc_battery_probe(struct platform_device *pdev)
 	int i, rc = 0;
 	struct htc_battery_platform_data *pdata = pdev->dev.platform_data;
 	struct htc_battery_core *htc_battery_core_ptr;
-
-	CHECK_LOG();
 
 	htc_battery_core_ptr = kmalloc(sizeof(struct htc_battery_core),
 					GFP_KERNEL);
@@ -1215,10 +927,9 @@ static int htc_battery_probe(struct platform_device *pdev)
 	for (i = 0; i < ADC_REPLY_ARRAY_SIZE; i++)
 		htc_batt_info.adc_vref[i] = (1 << 12) - 1;
 
-#if WK_IS_CABLE_IN
 	htc_batt_info.is_cable_in = 0;
 	tps80031_is_cable_in = is_cable_in;
-#endif
+
 	htc_batt_info.online = -1;
 
 	INIT_WORK(&htc_batt_timer.batt_work, batt_work_func);
@@ -1269,13 +980,6 @@ static int htc_battery_probe(struct platform_device *pdev)
 
 	tps80032_vsys_alarm_register_notifier(&battery_alarm_notifier);
 
-#if 0	/* fixme: use a delayed work to get better timming */
-	rc = htc_batt_get_battery_adc();
-	if (rc) {
-		BATT_ERR("Get first battery ADC value failed!");
-		goto fail;
-	}
-#endif
 	tps80032_batt_create_attrs(&pdev->dev);
 
 	mod_timer(&htc_batt_timer.batt_first_timer,
@@ -1299,21 +1003,15 @@ static struct platform_driver htc_battery_driver = {
 
 static int __init htc_battery_init(void)
 {
-	CHECK_LOG();
 
 	htc_batt_phone_call = 0;
 	htc_battery_initial = 0;
 	htc_full_level_flag = 0;
 	spin_lock_init(&htc_batt_info.batt_lock);
-	wake_lock_init(&htc_batt_info.vbus_wake_lock, WAKE_LOCK_SUSPEND,
-			"vbus_present");
-	wake_lock_init(&htc_batt_timer.battery_lock, WAKE_LOCK_SUSPEND,
-			"htc_battery_tps80032");
+	wake_lock_init(&htc_batt_info.vbus_wake_lock, WAKE_LOCK_SUSPEND, "vbus_present");
+	wake_lock_init(&htc_batt_timer.battery_lock, WAKE_LOCK_SUSPEND, "htc_battery_tps80032");
 	mutex_init(&htc_batt_info.info_lock);
-	
-#if WK_MBAT_IN
-	is_mbat_in = 1;
-#endif
+
 	usb_register_notifier(&usb_status_notifier);
 	platform_driver_register(&htc_battery_driver);
 
@@ -1338,4 +1036,3 @@ static int __init htc_battery_init(void)
 module_init(htc_battery_init);
 MODULE_DESCRIPTION("HTC Battery Driver");
 MODULE_LICENSE("GPL");
-
