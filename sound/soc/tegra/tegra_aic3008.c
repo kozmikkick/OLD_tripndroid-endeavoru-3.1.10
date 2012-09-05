@@ -536,13 +536,9 @@ static int tegra_aic3008_init(struct snd_soc_pcm_runtime *rtd)
 	int err = 0;
 	AUD_DBG("tegra_codec_init().\n");
 
-	err = tegra_asoc_utils_clk_enable(util_data);
-	if (err) {
-		AUD_ERR("Failed to enable dap mclk \n");
-		err = -ENODEV;
-		goto aic3008_init_fail;
-	}
-	AUD_DBG("Get tegra mclk handle util_data %p.\n", util_data);
+	err = tegra_asoc_utils_register_ctls(util_data);
+	if (err < 0)
+		return err;
 	
 	/* calls tegra_controls_init() in tegra_soc_controls.c
 	* to set up playback, capture, mode, i2s loop back
@@ -558,11 +554,6 @@ static int tegra_aic3008_init(struct snd_soc_pcm_runtime *rtd)
 	aic3008_CodecInit();
 	AUD_DBG("DONE aic3008_CodecInit().\n");
 
-	return err;
-	
-aic3008_init_fail:
-	
-	tegra_asoc_utils_clk_disable(util_data);
 	return err;
 }
 
