@@ -440,7 +440,7 @@ struct wl1271 {
 	u32 rx_counter;
 
 	/* Rx memory pool address */
-	struct wl1271_rx_mem_pool_addr rx_mem_pool_addr;
+	struct wl1271_rx_mem_pool_addr *rx_mem_pool_addr;
 
 	/* Intermediate buffer, used for packet aggregation */
 	u8 *aggr_buf;
@@ -469,6 +469,9 @@ struct wl1271 {
 	 */
 	struct delayed_work delayed_recovery;
 	bool force_mr_fw;
+
+	/* Pointer that holds DMA-friendly block for the mailbox */
+	struct event_mailbox *mbox;
 
 	/* The mbox event mask */
 	u32 event_mask;
@@ -500,7 +503,7 @@ struct wl1271 {
 
 	struct wl1271_stats stats;
 
-	__le32 buffer_32;
+	__le32 *buffer_32;
 	u32 buffer_cmd;
 	u32 buffer_busyword[WL1271_BUSY_WORD_CNT];
 
