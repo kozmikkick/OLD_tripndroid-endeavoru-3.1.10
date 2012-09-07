@@ -48,6 +48,7 @@
 #include "hdmi.h"
 #include "edid.h"
 #include "nvhdcp.h"
+#include "external_common.h"
 
 /* datasheet claims this will always be 216MHz */
 #define HDMI_AUDIOCLK_FREQ		216000000
@@ -253,7 +254,7 @@ const struct fb_videomode tegra_dc_hdmi_supported_modes[] = {
 		.vmode = FB_VMODE_NONINTERLACED,
 		.sync = FB_SYNC_VERT_HIGH_ACT,
 	},
-
+#ifndef CONFIG_TEGRA_HDMI_MHL
 	/* 1920x1080p 59.94/60hz EIA/CEA-861-B Format 16 */
 	{
 		.xres =		1920,
@@ -268,7 +269,7 @@ const struct fb_videomode tegra_dc_hdmi_supported_modes[] = {
 		.vmode =	FB_VMODE_NONINTERLACED,
 		.sync = FB_SYNC_HOR_HIGH_ACT | FB_SYNC_VERT_HIGH_ACT,
 	},
-
+#endif
 	/*
 	* Few VGA/SVGA modes to support monitors with lower
 	* resolutions or to support HDMI<->DVI connection
@@ -1348,7 +1349,15 @@ void tegra_dc_hdmi_detect_config(struct tegra_dc *dc,
 	tegra_fb_update_monspecs(dc->fb, specs, tegra_dc_hdmi_mode_filter);
 #ifdef CONFIG_SWITCH
 	hdmi->hpd_switch.state = 0;
+#ifdef CONFIG_TEGRA_HDMI_MHL_SUPERDEMO
+	if (g_bDemoTvFound) {
+		switch_set_state(&hdmi->hpd_switch, 2);
+	} else {
+		switch_set_state(&hdmi->hpd_switch, 1);
+	}
+#else
 	switch_set_state(&hdmi->hpd_switch, 1);
+#endif
 #endif
 	dev_info(&dc->ndev->dev, "display detected\n");
 
@@ -1408,6 +1417,13 @@ static bool tegra_dc_hdmi_detect(struct tegra_dc *dc)
 
 	if (!tegra_dc_hdmi_hpd(dc))
 		goto fail;
+
+#ifdef CONFIG_TEGRA_HDMI_MHL
+	if (!IsD0Mode()) {
+		update_mhl_status(false, CONNECT_TYPE_UNKNOWN);
+		goto fail;
+	}
+#endif
 
 	err = tegra_edid_get_monspecs(hdmi->edid, &specs);
 	if (err < 0) {
