@@ -1097,7 +1097,7 @@ static int sh532u_hvca_wr2(struct sh532u_info *info, u8 ep_type,
 {
 	u8 uc_data1;
 	u8 uc_data2;
-	u16 us_data;
+	u16 us_data = 0;
 	int err = 0;
 
 	switch (ep_type & 0xF0) {
