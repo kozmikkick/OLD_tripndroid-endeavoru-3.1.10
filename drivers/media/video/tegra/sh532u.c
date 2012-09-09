@@ -712,7 +712,7 @@ static int sh532u_dev_id(struct sh532u_info *info)
 static void sh532u_sts_rd(struct sh532u_info *info)
 {
 	u8 us_tmp;
-	u16 us_smv_fin;
+	u16 us_smv_fin = 0;
 	int err;
 
 	if (info->sts == NVC_FOCUS_STS_INITIALIZING)
@@ -1267,7 +1267,7 @@ static int sh532u_pos_abs_wr(struct sh532u_info *info, s16 tar_pos)
 
 static int sh532u_move_wait(struct sh532u_info *info)
 {
-	u16 us_smv_fin;
+	u16 us_smv_fin = 0;
 	u8 moveTime;
 	u8 ucParMod;
 	u8 tmp;
