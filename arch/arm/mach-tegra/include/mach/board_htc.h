@@ -82,6 +82,7 @@ enum {
 	PROJECT_PHASE_F   =  0x85,
 	PROJECT_PHASE_G   =  0x86,
 	PROJECT_PHASE_H   =  0x87,
+	PROJECT_PHASE_LATEST =  0xFF,
 };
 
 enum {

@@ -46,6 +46,7 @@
 #define ATAG_PS_TYPE 		0x4d534D77
 #define ATAG_TP_TYPE 		0x4d534D78
 #define ATAG_MFG_GPIO_TABLE 	0x59504551
+#define ATAG_PCBID		0x4d534D76
 
 bool enable_debug_ll = false;
 
@@ -66,7 +67,7 @@ static char *keycap_tag = NULL;
 static char *cid_tag = NULL;
 static char *carrier_tag = NULL;
 
-unsigned char pcbid = PROJECT_PHASE_INVALID;
+static unsigned char pcbid = PROJECT_PHASE_LATEST;
 
 static uint32_t *nvdumper_ptr;
 struct htc_reboot_params *reboot_params;
@@ -376,6 +377,27 @@ int __init tag_tp_parsing(const struct tag *tags)
 }
 __tagtable(ATAG_TP_TYPE, tag_tp_parsing);
 
+int __init parse_tag_pcbid(const struct tag *tags)
+{
+	int find = 0;
+	struct tag *t = (struct tag *)tags;
+
+	for (; t->hdr.size; t = tag_next(t)) {
+		if (t->hdr.tag == ATAG_PCBID) {
+			printk(KERN_DEBUG "found the pcbid tag\n");
+			find = 1;
+			break;
+		}
+	}
+
+	if (find) {
+		pcbid = t->u.revision.rev;
+	}
+	printk(KERN_DEBUG "parse_tag_pcbid: 0x%x\n", pcbid);
+	return pcbid;
+}
+__tagtable(ATAG_PCBID, parse_tag_pcbid);
+
 int __init parse_tag_mfg_gpio_table(const struct tag *tags)
 {
 	   unsigned char *dptr = (unsigned char *)(&tags->u);
@@ -462,29 +484,6 @@ int unregister_notifier_by_psensor(struct notifier_block *nb)
 	return blocking_notifier_chain_unregister(&psensor_notifier_list, nb);
 }
 
-/* should call only one time */
-static int __htc_get_pcbid_info(void)
-{
-	return pcbid;
-}
-
-static char* __pcbid_to_name(signed int id)
-{
-	return "<Latest HW phase>";
-}
-
-const int htc_get_pcbid_info(void)
-{
-	static int __pcbid = PROJECT_PHASE_INVALID;
-	if (__pcbid == PROJECT_PHASE_INVALID)
-	{
-		__pcbid = __htc_get_pcbid_info();
-		pr_info("project phase: %s (id=%d)\n",
-				__pcbid_to_name(__pcbid), __pcbid);
-	}
-	return __pcbid;
-}
-
 #ifdef CONFIG_DEBUG_LL_DYNAMIC
 static int __init board_set_debug_ll(char *val)
 {
@@ -505,6 +504,11 @@ __setup("bl_ac_in", bl_ac_flag_init);
 unsigned int get_bl_ac_in_flag(void)
 {
 	return bl_ac_flag;
+}
+
+const int htc_get_pcbid_info(void)
+{
+	return pcbid;
 }
 
 int get_dirty_state(void)
