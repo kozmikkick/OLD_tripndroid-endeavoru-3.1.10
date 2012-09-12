@@ -58,14 +58,12 @@ static int mfg_mode;
 static unsigned long kernel_flag;
 static unsigned long extra_kernel_flag;
 static unsigned int bl_ac_flag = 0;
-static unsigned char mfg_gpio_table[MFG_GPIO_TABLE_MAX_SIZE];
 
 static char *emmc_tag;
 static char *board_sn;
 static char *board_mb_sn;
 static char *keycap_tag = NULL;
 static char *cid_tag = NULL;
-static char *carrier_tag = NULL;
 
 static unsigned char pcbid = PROJECT_PHASE_LATEST;
 
@@ -106,22 +104,6 @@ void board_get_cid_tag(char **ret_data)
 	*ret_data = cid_tag;
 }
 EXPORT_SYMBOL(board_get_cid_tag);
-
-static int __init board_set_carrier_tag(char *get_hboot_carrier)
-{
-	if (strlen(get_hboot_carrier))
-		carrier_tag = get_hboot_carrier;
-	else
-		carrier_tag = NULL;
-	return 1;
-}
-__setup("androidboot.carrier=", board_set_carrier_tag);
-
-void board_get_carrier_tag(char **ret_data)
-{
-	*ret_data = carrier_tag;
-}
-EXPORT_SYMBOL(board_get_carrier_tag);
 
 unsigned int gs_kvalue;
 EXPORT_SYMBOL(gs_kvalue);
@@ -282,8 +264,6 @@ static int __init board_bootloader_setup(char *str)
 	char *build = NULL;
 	char *args = temp;
 
-	printk(KERN_INFO "%s: %s\n", __func__, str);
-
 	strcpy(temp, str);
 
 	/*parse the last parameter*/
@@ -304,12 +284,6 @@ static int __init board_bootloader_setup(char *str)
 	return 1;
 }
 __setup("androidboot.bootloader=", board_bootloader_setup);
-
-int board_build_flag(void)
-{
-	return build_flag;
-}
-EXPORT_SYMBOL(board_build_flag);
 
 static int __init board_serialno_setup(char *serialno)
 {
@@ -397,23 +371,6 @@ int __init parse_tag_pcbid(const struct tag *tags)
 	return pcbid;
 }
 __tagtable(ATAG_PCBID, parse_tag_pcbid);
-
-int __init parse_tag_mfg_gpio_table(const struct tag *tags)
-{
-	   unsigned char *dptr = (unsigned char *)(&tags->u);
-	   __u32 size;
-
-	   size = min((__u32)(tags->hdr.size - 2) * sizeof(__u32), (__u32)MFG_GPIO_TABLE_MAX_SIZE);
-	   memcpy(mfg_gpio_table, dptr, size);
-	   return 0;
-}
-__tagtable(ATAG_MFG_GPIO_TABLE, parse_tag_mfg_gpio_table);
-
-char *board_get_mfg_sleep_gpio_table(void)
-{
-		return mfg_gpio_table;
-}
-EXPORT_SYMBOL(board_get_mfg_sleep_gpio_table);
 
 static int __init board_set_emmc_tag(char *get_hboot_emmc)
 {
@@ -550,33 +507,29 @@ static int __init nvdumper_init(void)
 
 	printk(KERN_INFO "nvdumper: nvdumper_reserved:0x%08lx\n", nvdumper_reserved);
 	if (!nvdumper_reserved) {
-		printk(KERN_INFO "nvdumper: not configured\n");
 		return -ENOTSUPP;
 	}
 	nvdumper_ptr = ioremap_nocache(nvdumper_reserved,
 			NVDUMPER_RESERVED_LEN);
-	printk(KERN_INFO "nvdumper: nvdumper_ptr:0x%p\n", nvdumper_ptr);
+
 	if (!nvdumper_ptr) {
-		printk(KERN_INFO "nvdumper: failed to ioremap memory "
-			"at 0x%08lx\n", nvdumper_reserved);
 		return -EIO;
 	}
 	reboot_params = ioremap_nocache(nvdumper_reserved - NVDUMPER_RESERVED_LEN,
 			NVDUMPER_RESERVED_LEN);
-	printk(KERN_INFO "nvdumper: reboot_params:0x%p\n", reboot_params);
+
 	if (!reboot_params) {
-		printk(KERN_INFO "nvdumper: failed to ioremap memory "
-			"at 0x%08lx\n", nvdumper_reserved - NVDUMPER_RESERVED_LEN);
 		return -EIO;
 	}
 	reboot_battery_first_level = reboot_params->battery_level;
 	memset(reboot_params, 0x0, sizeof(struct htc_reboot_params));
 	ret = register_reboot_notifier(&nvdumper_reboot_notifier);
-	printk(KERN_INFO "nvdumper: ret:%d\n", ret);
+
 	if (ret)
 		return ret;
+
 	dirty = get_dirty_state();
-	printk(KERN_INFO "nvdumper: dirty:%d\n", dirty);
+
 	switch (dirty) {
 	case 0:
 		printk(KERN_INFO "nvdumper: last reboot was clean\n");
