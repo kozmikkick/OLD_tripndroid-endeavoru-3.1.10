@@ -1563,7 +1563,7 @@ int usb_autopm_get_interface(struct usb_interface *intf)
 			__func__, atomic_read(&intf->dev.power.usage_count),
 			status);
 #endif
-	if (status > 0)
+	if (status > 0 || status == -EINPROGRESS)
 		status = 0;
 	return status;
 }
