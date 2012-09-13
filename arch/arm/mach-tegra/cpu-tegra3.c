@@ -188,14 +188,6 @@ enum {
 	TEGRA_CPU_SPEED_SKEWED,
 };
 
-#define NR_FSHIFT	2
-static unsigned int nr_run_thresholds[] = {
-/*      1,  2,  3,  4 - on-line cpus target */
-	5,  9, 10, UINT_MAX /* avg run threads * 4 (e.g., 9 = 2.25 threads) */
-};
-static unsigned int nr_run_hysteresis = 2;	/* 0.5 thread */
-static unsigned int nr_run_last;
-
 static noinline int tegra_cpu_speed_balance(void)
 {
 	unsigned long highest_speed = tegra_cpu_highest_speed();
@@ -204,8 +196,6 @@ static noinline int tegra_cpu_speed_balance(void)
 	unsigned int nr_cpus = num_online_cpus();
 	unsigned int max_cpus = pm_qos_request(PM_QOS_MAX_ONLINE_CPUS) ? : 4;
 	unsigned int min_cpus = pm_qos_request(PM_QOS_MIN_ONLINE_CPUS);
-	unsigned int avg_nr_run = avg_nr_running();
-	unsigned int nr_run;
 
 	/* Evaluate:
 	 * - distribution of freq targets for already on-lined CPUs
@@ -216,24 +206,14 @@ static noinline int tegra_cpu_speed_balance(void)
 	 * TEGRA_CPU_SPEED_BIASED to keep CPU core composition unchanged
 	 * TEGRA_CPU_SPEED_SKEWED to remove CPU core off-line
 	 */
-	for (nr_run = 1; nr_run < ARRAY_SIZE(nr_run_thresholds); nr_run++) {
-		unsigned int nr_threshold = nr_run_thresholds[nr_run - 1];
-		if (nr_run_last <= nr_run)
-			nr_threshold += nr_run_hysteresis;
-		if (avg_nr_run <= (nr_threshold << (FSHIFT - NR_FSHIFT)))
-			break;
-	}
-	nr_run_last = nr_run;
 
 	if (((tegra_count_slow_cpus(skewed_speed) >= 2) ||
-	     (nr_run < nr_cpus) ||
 	     tegra_cpu_edp_favor_down(nr_cpus, mp_overhead) ||
 	     (highest_speed <= idle_bottom_freq) || (nr_cpus > max_cpus)) &&
 	    (nr_cpus > min_cpus))
 		return TEGRA_CPU_SPEED_SKEWED;
 
 	if (((tegra_count_slow_cpus(balanced_speed) >= 1) ||
-	     (nr_run <= nr_cpus) ||
 	     (!tegra_cpu_edp_favor_up(nr_cpus, mp_overhead)) ||
 	     (highest_speed <= idle_bottom_freq) || (nr_cpus == max_cpus)) &&
 	    (nr_cpus >= min_cpus))
