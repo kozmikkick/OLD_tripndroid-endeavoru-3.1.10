@@ -1087,6 +1087,24 @@ struct conf_scan_settings {
 	u32 max_dwell_time_active;
 
 	/*
+	 * The minimum time to wait on each channel for active scans
+	 * when there's a concurrent active interface. This should
+	 * lower than min_dwell_time_active usually in order to avoid
+	 * interfering with possible voip traffic on another interface.
+	 *
+	 * Range: u32 tu/1000
+	 */
+	u32 min_dwell_time_active_conc;
+
+	/*
+	 * The maximum time to wait on each channel for active scans
+	 * See explanation about min_dwell_time_active_conc
+	 *
+	 * Range: u32 tu/1000
+	 */
+	u32 max_dwell_time_active_conc;
+
+	/*
 	 * The minimum time to wait on each channel for passive scans
 	 *
 	 * Range: u32 tu/1000
