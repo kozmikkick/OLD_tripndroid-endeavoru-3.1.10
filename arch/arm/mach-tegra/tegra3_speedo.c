@@ -428,7 +428,7 @@ void tegra_init_speedo_data(void)
 			break;
 		}
 	}
-	cpu_process_id = iv -1;
+	cpu_process_id = 3;
 
 	if (cpu_process_id == -1) {
 		pr_err("****************************************************");
