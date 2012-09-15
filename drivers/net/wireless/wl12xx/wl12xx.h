@@ -38,6 +38,7 @@
 #include "conf.h"
 #include "ini.h"
 
+/* err to kholk@xda, just renaming firmware to epr doesnt make it yours! learn to code or use gcp */
 #define WL127X_FW_NAME_MULTI	"ti-connectivity/wl127x-tripndroid-mr.bin"
 #define WL127X_FW_NAME_SINGLE	"ti-connectivity/wl127x-tripndroid-sr.bin"
 #define WL127X_PLT_FW_NAME	"ti-connectivity/wl127x-tripndroid-plt.bin"
@@ -453,6 +454,21 @@ struct wl1271 {
 	/* Sysfs FW log entry readers wait queue */
 	wait_queue_head_t fwlog_waitq;
 
+	/* Core Dump memory map */
+	struct mem_partition *core_dump_mem_area;
+
+	/* Core Dump buffer */
+	u8 *core_dump;
+
+	/* Number of valid bytes in the core dump buffer */
+	size_t core_dump_size;
+
+	/* Core dump available */
+	bool core_dump_avail;
+
+	/* Sysfs core_dump entry readers wait queue */
+	wait_queue_head_t core_dump_waitq;
+
 	/* Hardware recovery work */
 	struct work_struct recovery_work;
 	/*
@@ -560,6 +576,9 @@ struct wl1271 {
 	/* RX Data filter rule status - enabled/disabled */
 	bool rx_data_filters_status[WL1271_MAX_RX_FILTERS];
 
+	/* AP-mode - the frequency driver switching to in AP/GO */
+	u16 ch_sw_freq;
+
 	bool watchdog_recovery;
 
 	/* work to fire when Tx is stuck */
@@ -567,6 +586,12 @@ struct wl1271 {
 
 	/* mutex for protecting the tx_flush function */
 	struct mutex flush_mutex;
+
+	/* Short GI is disabled in the FW - For certification tests purposes */
+	bool disable_sgi;
+
+	/* Patterns configured with set_rx_filters */
+	struct cfg80211_wowlan *wowlan_patterns;
 };
 
 struct wl1271_station {

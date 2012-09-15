@@ -577,6 +577,9 @@ struct ieee80211_hw *ieee80211_alloc_hw(size_t priv_data_len,
 	wiphy->features = NL80211_FEATURE_SK_TX_STATUS |
 			  NL80211_FEATURE_HT_IBSS;
 
+	if (ops->ap_channel_switch)
+		wiphy->features |= NL80211_FEATURE_AP_CH_SWITCH;
+
 	if (!ops->set_key)
 		wiphy->flags |= WIPHY_FLAG_IBSS_RSN;
 

@@ -196,12 +196,38 @@ static int wl1271_event_process(struct wl1271 *wl, struct event_mailbox *mbox)
 			struct ieee80211_vif *vif = wl12xx_wlvif_to_vif(wlvif);
 			bool success;
 
+			/* make sure only the correct sta is moved */
+			if (mbox->channel_switch_role_id != wlvif->role_id)
+				continue;
+
 			if (!test_and_clear_bit(WLVIF_FLAG_CS_PROGRESS,
 						&wlvif->flags))
 				continue;
 
 			success = mbox->channel_switch_status ? false : true;
 			ieee80211_chswitch_done(vif, success);
+		}
+
+		wl12xx_for_each_wlvif_ap(wl, wlvif) {
+			u16 freq = wl->ch_sw_freq;
+			struct ieee80211_channel *new_ch;
+			if (!freq)
+				break;
+
+			new_ch = ieee80211_get_channel(wl->hw->wiphy, freq);
+
+			if (mbox->channel_switch_role_id != wlvif->role_id)
+				continue;
+
+			wlvif->channel = ieee80211_frequency_to_channel(freq);
+			wl1271_debug(DEBUG_AP, "ap ch switch done, new_freq = "
+				     "%d, new_ch = %d", freq, wlvif->channel);
+			wl->ch_sw_freq = 0;
+
+			vif = wl12xx_wlvif_to_vif(wlvif);
+			ieee80211_ap_ch_switch_done(vif, new_ch,
+						    NL80211_CHAN_HT20);
+			break;
 		}
 	}
 

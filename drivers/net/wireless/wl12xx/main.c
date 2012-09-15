@@ -53,6 +53,9 @@
 
 #define WL1271_BOOT_RETRIES 3
 
+#define WL12XX_CORE_DUMP_CHUNK_SIZE	(4 * PAGE_SIZE)
+#define WL12XX_CORE_DUMP_ENABLED	(false)
+
 static struct conf_drv_settings default_conf = {
 	.sg = {
 		.params = {
@@ -355,12 +358,55 @@ static struct conf_drv_settings default_conf = {
 		.always                        = 0,
 	},
 	.fwlog = {
-		.mode                         = WL12XX_FWLOG_CONTINUOUS,
+		.mode                         = WL12XX_FWLOG_ON_DEMAND,
 		.mem_blocks                   = 2,
 		.severity                     = 0,
 		.timestamp                    = WL12XX_FWLOG_TIMESTAMP_DISABLED,
-		.output                       = WL12XX_FWLOG_OUTPUT_DBG_PINS,
+		.output                       = WL12XX_FWLOG_OUTPUT_HOST,
 		.threshold                    = 0,
+	},
+	.core_dump = {
+		.enable                       = WL12XX_CORE_DUMP_ENABLED,
+
+		/* wl127x chip memory partitions */
+		.mem_wl127x		      = {
+			[CONF_MEM_CODE]	= {
+				.start = 0x0,
+				.size  = 0x30000
+			},
+			[CONF_MEM_DATA]	= {
+				.start = 0x20000000,
+				.size  = 0xC000
+			},
+			[CONF_MEM_PACKET] = {
+				.start = 0x40000,
+				.size  = 0xD000
+			},
+			[CONF_MEM_REGISTERS] = {
+				.start = 0x300000,
+				.size  = 0x10000
+			},
+		},
+
+		/* wl128x chip memory partitions */
+		.mem_wl128x		      = {
+			[CONF_MEM_CODE]	= {
+				.start = 0x0,
+				.size  = 0x30000
+			},
+			[CONF_MEM_DATA]	= {
+				.start = 0x20000000,
+				.size  = 0xC000
+			},
+			[CONF_MEM_PACKET] = {
+				.start = 0x40000,
+				.size  = 0x9000
+			},
+			[CONF_MEM_REGISTERS] = {
+				.start = 0x300000,
+				.size  = 0x10000
+			},
+		},
 	},
 	.hci_io_ds = HCI_IO_DS_6MA,
 	.rate = {
@@ -400,9 +446,13 @@ static struct conf_drv_settings default_conf = {
 };
 
 static char *fwlog_param;
+static int fwlog_mem_blocks = -1;
+
+static bool core_dump_enabled = WL12XX_CORE_DUMP_ENABLED;
 static bool bug_on_recovery;
 static char *fref_param;
 static char *tcxo_param;
+static bool ap_ch_is_dominant;
 
 static void __wl1271_op_remove_interface(struct wl1271 *wl,
 					 struct ieee80211_vif *vif,
@@ -771,6 +821,19 @@ static void wl1271_conf_init(struct wl1271 *wl)
 	memcpy(&wl->conf, &default_conf, sizeof(default_conf));
 
 	/* Adjust settings according to optional module parameters */
+
+	/* Firmware Logger params */
+	if (fwlog_mem_blocks != -1) {
+		if (fwlog_mem_blocks >= CONF_FWLOG_MIN_MEM_BLOCKS &&
+		    fwlog_mem_blocks <= CONF_FWLOG_MAX_MEM_BLOCKS) {
+			wl->conf.fwlog.mem_blocks = fwlog_mem_blocks;
+		} else {
+			wl1271_error(
+				"Illegal fwlog_mem_blocks=%d using default %d",
+				fwlog_mem_blocks, wl->conf.fwlog.mem_blocks);
+		}
+	}
+
 	if (fwlog_param) {
 		if (!strcmp(fwlog_param, "continuous")) {
 			wl->conf.fwlog.mode = WL12XX_FWLOG_CONTINUOUS;
@@ -788,6 +851,9 @@ static void wl1271_conf_init(struct wl1271 *wl)
 			wl1271_error("Unknown fwlog parameter %s", fwlog_param);
 		}
 	}
+
+	/* Adjust core_dump enable according to optional module param */
+	wl->conf.core_dump.enable = core_dump_enabled;
 
 	wl->ref_clock = -1;
 	if (fref_param) {
@@ -1342,7 +1408,8 @@ out:
 
 void wl12xx_queue_recovery_work(struct wl1271 *wl)
 {
-	WARN_ON(!test_bit(WL1271_FLAG_INTENDED_FW_RECOVERY, &wl->flags));
+	WARN_ON(!test_bit(WL1271_FLAG_INTENDED_FW_RECOVERY, &wl->flags) &&
+		!wl->watchdog_recovery);
 
 	/* Avoid a recursive recovery */
 	if (wl->state == WLCORE_STATE_ON) {
@@ -1380,15 +1447,17 @@ size_t wl12xx_copy_fwlog(struct wl1271 *wl, u8 *memblock, size_t maxlen)
 	return len;
 }
 
+#define WL12XX_FW_LOG_END 0x2000000
+
 static void wl12xx_read_fwlog_panic(struct wl1271 *wl)
 {
 	u32 addr;
-	u32 first_addr;
+	u32 offset;
+	u32 end_of_log;
 	u8 *block;
 	int ret;
 
 	if ((wl->quirks & WL12XX_QUIRK_FWLOG_NOT_IMPLEMENTED) ||
-	    (wl->conf.fwlog.mode != WL12XX_FWLOG_ON_DEMAND) ||
 	    (wl->conf.fwlog.mem_blocks == 0))
 		return;
 
@@ -1398,26 +1467,32 @@ static void wl12xx_read_fwlog_panic(struct wl1271 *wl)
 	if (!block)
 		return;
 
-	/* Make sure the chip is awake and the logger isn't active. */
-	if (!wl1271_ps_elp_wakeup(wl)) {
-		/* Do not send a stop fwlog command if the fw is hanged */
-		if (!wl->watchdog_recovery)
-			wl12xx_cmd_stop_fwlog(wl);
-	}
-	else
-		goto out;
+	/*
+	 * Do not send a stop fwlog command if the fw is hanged or if
+	 * dbgpins are used (due to some fw bug).
+	 */
+	if (!wl->watchdog_recovery &&
+	    wl->conf.fwlog.output != WL12XX_FWLOG_OUTPUT_DBG_PINS)
+		wl12xx_cmd_stop_fwlog(wl);
 
 	/* Read the first memory block address */
 	ret = wl12xx_fw_status(wl, wl->fw_status);
 	if (ret < 0)
 		goto out;
 
-	first_addr = le32_to_cpu(wl->fw_status->log_start_addr);
-	if (!first_addr)
+	addr = le32_to_cpu(wl->fw_status->log_start_addr);
+	if (!addr)
 		goto out;
 
+	if (wl->conf.fwlog.mode == WL12XX_FWLOG_CONTINUOUS) {
+		offset = sizeof(addr) + sizeof(struct wl1271_rx_descriptor);
+		end_of_log = WL12XX_FW_LOG_END;
+	} else {
+		offset = sizeof(addr);
+		end_of_log = addr;
+	}
+
 	/* Traverse the memory blocks linked list */
-	addr = first_addr;
 	do {
 		memset(block, 0, WL12XX_HW_BLOCK_SIZE);
 		ret = wl1271_read_hwaddr(wl, addr, block, WL12XX_HW_BLOCK_SIZE,
@@ -1428,18 +1503,116 @@ static void wl12xx_read_fwlog_panic(struct wl1271 *wl)
 		/*
 		 * Memory blocks are linked to one another. The first 4 bytes
 		 * of each memory block hold the hardware address of the next
-		 * one. The last memory block points to the first one.
+		 * one. The last memory block points to the first one in
+		 * on demand mode and is equal to 0x2000000 in continuous mode.
 		 */
 		addr = le32_to_cpup((__le32 *)block);
-		if (!wl12xx_copy_fwlog(wl, block + sizeof(addr),
-				       WL12XX_HW_BLOCK_SIZE - sizeof(addr)))
+		if (!wl12xx_copy_fwlog(wl, block + offset,
+				       WL12XX_HW_BLOCK_SIZE - offset))
 			break;
-	} while (addr && (addr != first_addr));
+	} while (addr && (addr != end_of_log));
 
 	wake_up_interruptible(&wl->fwlog_waitq);
 
 out:
 	kfree(block);
+}
+
+static void wl12xx_read_core_dump_panic(struct wl1271 *wl)
+{
+	struct wl1271_partition_set part, old_part;
+	int i;
+	int len = 0;
+	int ret;
+	int order;
+	void *chunk;
+
+	if (!wl->conf.core_dump.enable)
+		goto skip_read;
+
+	if (!wl->core_dump) {
+		wl1271_error("%s: wl->core_dump NULL", __func__);
+
+		goto skip_read;
+	}
+
+	if (!wl->core_dump_mem_area) {
+		wl1271_error("%s: wl->core_dump_mem_area NULL", __func__);
+
+		goto skip_read;
+	}
+
+	/* Chunk to use for SDIO DMA */
+	order = get_order(WL12XX_CORE_DUMP_CHUNK_SIZE);
+	chunk = (void *) __get_free_pages(GFP_KERNEL, order);
+
+	if (!chunk) {
+		wl1271_error("%s: failed to alloc chunk pages", __func__);
+
+		goto skip_read;
+	}
+
+	/* store current partition and switch partition */
+	old_part = wl->part;
+	memset(&part, 0, sizeof(part));
+	for (i = 0; i < CONF_MEM_LAST; i++) {
+		u32 mem_area_end =
+			wl->core_dump_mem_area[i].start +
+			wl->core_dump_mem_area[i].size;
+
+		part.mem.start = wl->core_dump_mem_area[i].start;
+		part.mem.size  = WL12XX_CORE_DUMP_CHUNK_SIZE;
+
+		while (part.mem.start < mem_area_end) {
+
+			part.mem.size =	min(
+				part.mem.size,
+				mem_area_end - part.mem.start);
+
+			ret = wl1271_set_partition(wl, &part);
+			if (ret < 0) {
+				wl1271_error("%s: %s start=0x%X size=%d",
+					__func__,
+					"failed to set partition",
+					part.mem.start, part.mem.size);
+
+				goto recover;
+			}
+
+			ret = wl1271_raw_read(
+				wl, 0,  chunk,
+				part.mem.size, false);
+
+			if (ret < 0) {
+				wl1271_error(
+					"%s: %s buff=0x%X start=0x%X size=%d",
+					__func__,
+					"failed to set partition",
+					(int) chunk,
+					part.mem.start, part.mem.size);
+
+				goto recover;
+			}
+
+			memcpy(wl->core_dump + len,
+			       chunk, part.mem.size);
+
+			part.mem.start +=  part.mem.size;
+			len += part.mem.size;
+		}
+	}
+
+	wl->core_dump_avail = true;
+	wake_up_interruptible(&wl->core_dump_waitq);
+
+recover:
+	free_pages((unsigned long) chunk, order);
+
+	/* recover partition */
+	wl1271_set_partition(wl, &old_part);
+
+skip_read:
+	return;
 }
 
 static void wl12xx_print_recovery(struct wl1271 *wl)
@@ -1470,6 +1643,7 @@ static void wl1271_recovery_work(struct work_struct *work)
 		goto out_unlock;
 
 	if (!test_bit(WL1271_FLAG_INTENDED_FW_RECOVERY, &wl->flags)) {
+		wl12xx_read_core_dump_panic(wl);
 		wl12xx_read_fwlog_panic(wl);
 		wl12xx_print_recovery(wl);
 	}
@@ -2117,10 +2291,11 @@ err:
 	return ret;
 }
 
-static int wl1271_configure_wowlan(struct wl1271 *wl,
-				   struct cfg80211_wowlan *wow)
+int wl1271_configure_wowlan(struct wl1271 *wl, struct cfg80211_wowlan *wow)
 {
 	int i, ret;
+
+	wl1271_debug(DEBUG_MAC80211, "configure_wowlan: wow %p", wow);
 
 	if (!wow || wow->any || !wow->n_patterns) {
 		ret = wl1271_rx_data_filtering_enable(wl, 0, FILTER_SIGNAL);
@@ -2302,7 +2477,7 @@ static int wl1271_op_suspend(struct ieee80211_hw *hw,
 	wl12xx_for_each_wlvif(wl, wlvif) {
 		ret = wl1271_configure_suspend(wl, wlvif, wow);
 		if (ret < 0) {
-			mutex_unlock(&wl->mutex);			
+			mutex_unlock(&wl->mutex);
 			wl1271_warning("couldn't prepare device to suspend");
 			return ret;
 		}
@@ -2489,6 +2664,7 @@ static void wl1271_op_stop_locked(struct wl1271 *wl)
 	memset(wl->links_map, 0, sizeof(wl->links_map));
 	memset(wl->roc_map, 0, sizeof(wl->roc_map));
 	wl->active_sta_count = 0;
+	wl->wowlan_patterns = NULL;
 
 	/* The system link is always allocated */
 	__set_bit(WL12XX_SYSTEM_HLID, wl->links_map);
@@ -2973,31 +3149,36 @@ static void __wl1271_op_remove_interface(struct wl1271 *wl,
 	}
 
 	if (!test_bit(WL1271_FLAG_RECOVERY_IN_PROGRESS, &wl->flags)) {
-		/* disable active roles and clear RX filters */
+		/* disable active roles */
 		ret = wl1271_ps_elp_wakeup(wl);
 		if (ret < 0)
 			goto deinit;
 
 		if (wlvif->bss_type == BSS_TYPE_STA_BSS ||
 		    wlvif->bss_type == BSS_TYPE_IBSS) {
-			ret = wl1271_configure_wowlan(wl, NULL);
-			if (ret < 0)
-				goto deinit;
-
 			if (wl12xx_dev_role_started(wlvif))
 				wl12xx_stop_dev(wl, wlvif);
 		}
 
+		/* Restore RX filters if last AP and still at least one STA */
+		if (wl->ap_count == 1 && wl->sta_count &&
+		    wlvif->bss_type == BSS_TYPE_AP_BSS &&
+		    wl->wowlan_patterns) {
+			ret = wl1271_configure_wowlan(wl, wl->wowlan_patterns);
+			if (ret < 0)
+				goto sleep;
+		}
+
 		ret = wl12xx_cmd_role_disable(wl, &wlvif->role_id);
 		if (ret < 0)
-			goto deinit;
+			goto sleep;
 
 		if (vif->dummy_p2p) {
 			ret = wl12xx_cmd_role_disable(wl, &wlvif->dev_role_id);
 			if (ret < 0)
-				goto deinit;
+				goto sleep;
 		}
-
+sleep:
 		wl1271_ps_elp_sleep(wl);
 	}
 deinit:
@@ -4862,17 +5043,28 @@ static int wl12xx_op_set_rx_filters(struct ieee80211_hw *hw,
 
 	mutex_lock(&wl->mutex);
 
-	wl1271_debug(DEBUG_MAC80211, "mac80211 set rx filters");
+	wl1271_debug(DEBUG_MAC80211, "mac80211 set rx filters: wowlan %p",
+		     wowlan);
 
-	if (unlikely(wl->state != WLCORE_STATE_ON))
+	if (unlikely(wl->state != WLCORE_STATE_ON)) {
+		ret = -EOPNOTSUPP;
 		goto out;
+	}
 
 	ret = wl1271_ps_elp_wakeup(wl);
 	if (ret < 0)
 		goto out;
 
-	ret = wl1271_configure_wowlan(wl, wowlan);
+	/* No AP roles so configure FW with new filters */
+	if (!wl->ap_count) {
+		ret = wl1271_configure_wowlan(wl, wowlan);
+		if (ret < 0)
+			goto out_sleep;
+	}
 
+	wl->wowlan_patterns = wowlan;
+
+out_sleep:
 	wl1271_ps_elp_sleep(wl);
 out:
 	mutex_unlock(&wl->mutex);
@@ -5321,7 +5513,7 @@ out:
 }
 
 static void wl12xx_op_channel_switch(struct ieee80211_hw *hw,
-				     struct ieee80211_channel_switch *ch_switch)
+				     struct ieee80211_channel_switch *ch_sw)
 {
 	struct wl1271 *wl = hw->priv;
 	struct wl12xx_vif *wlvif;
@@ -5343,14 +5535,65 @@ static void wl12xx_op_channel_switch(struct ieee80211_hw *hw,
 		goto out;
 	}
 
+	/*
+	 * Channel switch command for STA/P2P-CL is not supported in MR FW.
+	 * Disconnect the STA to cause a reconnection on the second channel
+	 * which will also move the other role (AP).
+	 */
+	if (wl->fw_type == WL12XX_FW_TYPE_MULTI) {
+		wl1271_debug(DEBUG_MAC80211, "mac80211 dropping ch switch");
+		wl12xx_for_each_wlvif_sta(wl, wlvif) {
+			struct ieee80211_vif *vif = wl12xx_wlvif_to_vif(wlvif);
+			ieee80211_chswitch_done(vif, false);
+			ieee80211_connection_loss(vif);
+		}
+		goto out;
+	}
+
 	ret = wl1271_ps_elp_wakeup(wl);
 	if (ret < 0)
 		goto out;
 
 	/* TODO: change mac80211 to pass vif as param */
 	wl12xx_for_each_wlvif_sta(wl, wlvif) {
-		ret = wl12xx_cmd_channel_switch(wl, wlvif, ch_switch);
+		ret = wl12xx_cmd_channel_switch(wl, wlvif,
+						ch_sw->channel, ch_sw->count,
+						ch_sw->block_tx, false);
+		if (!ret)
+			set_bit(WLVIF_FLAG_CS_PROGRESS, &wlvif->flags);
+	}
 
+	wl1271_ps_elp_sleep(wl);
+
+out:
+	mutex_unlock(&wl->mutex);
+}
+
+static void wl12xx_op_ap_channel_switch(struct ieee80211_hw *hw,
+					struct ieee80211_ap_ch_switch *ap_ch_sw)
+{
+	struct wl1271 *wl = hw->priv;
+	struct wl12xx_vif *wlvif;
+	int ret;
+
+	wl1271_debug(DEBUG_MAC80211, "mac80211 ap channel switch");
+
+	wl1271_tx_flush(wl);
+
+	mutex_lock(&wl->mutex);
+
+	ret = wl1271_ps_elp_wakeup(wl);
+	if (ret < 0)
+		goto out;
+
+	wl12xx_for_each_wlvif_ap(wl, wlvif) {
+		wl1271_debug(DEBUG_MAC80211, "mac80211 sending "
+			     "channel switch cmd");
+		ret = wl12xx_cmd_channel_switch(wl, wlvif,
+					    ap_ch_sw->channel,
+					    ap_ch_sw->count,
+					    ap_ch_sw->block_tx,
+					    ap_ch_sw->post_switch_block_tx);
 		if (!ret)
 			set_bit(WLVIF_FLAG_CS_PROGRESS, &wlvif->flags);
 	}
@@ -5638,6 +5881,7 @@ static const struct ieee80211_ops wl1271_ops = {
 	.tx_frames_pending = wl1271_tx_frames_pending,
 	.set_bitrate_mask = wl12xx_set_bitrate_mask,
 	.channel_switch = wl12xx_op_channel_switch,
+	.ap_channel_switch = wl12xx_op_ap_channel_switch,
 	.set_default_key_idx = wl1271_op_set_default_key_idx,
 	.get_current_rssi = wl1271_op_get_current_rssi,
 	.set_rx_filters = wl12xx_op_set_rx_filters,
@@ -5725,6 +5969,68 @@ static DEVICE_ATTR(bt_coex_state, S_IRUGO | S_IWUSR,
 		   wl1271_sysfs_show_bt_coex_state,
 		   wl1271_sysfs_store_bt_coex_state);
 
+static ssize_t wl1271_sysfs_read_disable_sgi(struct device *dev,
+					     struct device_attribute *attr,
+					     char *buf)
+{
+	struct wl1271 *wl = dev_get_drvdata(dev);
+	ssize_t len = PAGE_SIZE;
+
+	mutex_lock(&wl->mutex);
+	len = snprintf(buf, len, "%d\n", wl->disable_sgi);
+	mutex_unlock(&wl->mutex);
+
+	return len;
+}
+
+static ssize_t wl1271_sysfs_write_disable_sgi(struct device *dev,
+					      struct device_attribute *attr,
+					      const char *buf, size_t count)
+{
+	struct wl1271 *wl = dev_get_drvdata(dev);
+	unsigned long res;
+	int ret;
+
+	ret = kstrtoul(buf, 10, &res);
+	if (ret < 0) {
+		wl1271_warning("invalid value written to disable_sgi");
+		return count;
+	}
+
+	mutex_lock(&wl->mutex);
+
+	res = !!res;
+
+	if (res == wl->disable_sgi)
+		goto out;
+
+	if (unlikely(wl->state != WLCORE_STATE_ON)) {
+		wl1271_warning("chip is off");
+		goto out;
+	}
+
+	ret = wl1271_ps_elp_wakeup(wl);
+	if (ret < 0)
+		goto out;
+
+	ret = wl12xx_cmd_generic_cfg(wl, NULL,
+				     WL12XX_GENCFG_DISABLE_SGI, res, 0);
+	if (ret < 0)
+		goto out_sleep;
+
+	wl->disable_sgi = res;
+
+out_sleep:
+	wl1271_ps_elp_sleep(wl);
+out:
+	mutex_unlock(&wl->mutex);
+	return count;
+}
+
+static DEVICE_ATTR(disable_sgi, S_IRUGO | S_IWUSR,
+		   wl1271_sysfs_read_disable_sgi,
+		   wl1271_sysfs_write_disable_sgi);
+
 static ssize_t wl1271_sysfs_show_hw_pg_ver(struct device *dev,
 					   struct device_attribute *attr,
 					   char *buf)
@@ -5808,6 +6114,80 @@ static ssize_t wl1271_sysfs_read_fwlog(struct file *filp, struct kobject *kobj,
 static struct bin_attribute fwlog_attr = {
 	.attr = {.name = "fwlog", .mode = S_IRUSR},
 	.read = wl1271_sysfs_read_fwlog,
+};
+
+static ssize_t wl1271_sysfs_read_core_dump(struct file *filp,
+					   struct kobject *kobj,
+					   struct bin_attribute *bin_attr,
+					   char *buffer, loff_t pos,
+					   size_t count)
+{
+	struct device *dev = container_of(kobj, struct device, kobj);
+	struct wl1271 *wl = dev_get_drvdata(dev);
+	ssize_t len = 0;
+	int ret;
+
+	ret = mutex_lock_interruptible(&wl->mutex);
+	if (ret < 0) {
+		len = -ERESTARTSYS;
+		goto out;
+	}
+
+	if (!wl->core_dump_avail && pos != 0) {
+		/* Trying to read more but device removed - return EOF */
+		goto out_mutex;
+	}
+
+	/* Let only one thread read the log at a time, blocking others */
+	while (!wl->core_dump_avail) {
+		DEFINE_WAIT(wait);
+
+		prepare_to_wait_exclusive(&wl->core_dump_waitq,
+					  &wait,
+					  TASK_INTERRUPTIBLE);
+
+		if (wl->core_dump_avail || wl->core_dump_size == 0) {
+			finish_wait(&wl->core_dump_waitq, &wait);
+			break;
+		}
+
+		mutex_unlock(&wl->mutex);
+
+		schedule();
+		finish_wait(&wl->core_dump_waitq, &wait);
+
+		if (signal_pending(current)) {
+			len = -ERESTARTSYS;
+			goto out;
+		}
+
+		ret = mutex_lock_interruptible(&wl->mutex);
+		if (ret < 0) {
+			len = -ERESTARTSYS;
+			goto out;
+		}
+	}
+
+	len = min((int) count, (int) wl->core_dump_size - (int) pos);
+
+	if (len > 0)
+		memcpy(buffer, wl->core_dump + pos, len);
+	else {
+		/* When reader reaches EOF, block readers till new core_dump */
+		wl->core_dump_avail = false;
+		len = 0;
+	}
+
+out_mutex:
+	mutex_unlock(&wl->mutex);
+
+out:
+	return len;
+}
+
+static struct bin_attribute core_dump_attr = {
+	.attr = {.name = "core_dump", .mode = S_IRUSR},
+	.read = wl1271_sysfs_read_core_dump,
 };
 
 static bool wl12xx_mac_in_fuse(struct wl1271 *wl)
@@ -6071,6 +6451,9 @@ static int wl1271_init_ieee80211(struct wl1271 *wl)
 		IEEE80211_HW_SCAN_WHILE_IDLE |
 		IEEE80211_HW_SUPPORTS_RX_FILTERS;
 
+	if (ap_ch_is_dominant)
+		wl->hw->flags |= IEEE80211_HW_AP_CH_IS_DOMINANT;
+
 	wl->hw->wiphy->cipher_suites = cipher_suites;
 	wl->hw->wiphy->n_cipher_suites = ARRAY_SIZE(cipher_suites);
 
@@ -6135,6 +6518,69 @@ static int wl1271_init_ieee80211(struct wl1271 *wl)
 }
 
 #define WL1271_DEFAULT_CHANNEL 0
+
+static void wl12xx_core_dump_init(struct wl1271 *wl)
+{
+	wl->core_dump = NULL;
+	wl->core_dump_size = 0;
+	wl->core_dump_avail = false;
+	wl->core_dump_mem_area = NULL;
+	init_waitqueue_head(&wl->core_dump_waitq);
+}
+
+static int wl12xx_core_dump_create(struct wl1271 *wl)
+{
+	int ret = 0;
+	int i;
+	int len = 0;
+
+	if (!wl->conf.core_dump.enable)
+		goto out;
+
+	/* Alloc core dump area according to chip type and sysfs file */
+	if (wl->chip.id == CHIP_ID_1283_PG20 ||
+	    wl->chip.id == CHIP_ID_1283_PG10)
+		/* Change PACKET memory area for wl128x */
+		wl->core_dump_mem_area = wl->conf.core_dump.mem_wl128x;
+	else
+		wl->core_dump_mem_area = wl->conf.core_dump.mem_wl127x;
+
+	for (i = 0; i < CONF_MEM_LAST; i++)
+		len += wl->core_dump_mem_area[i].size;
+
+	/* Create sysfs file for the core_dump log */
+	core_dump_attr.size = len;
+	ret = device_create_bin_file(wl->dev, &core_dump_attr);
+	if (ret < 0) {
+		wl1271_error("failed to create sysfs file core_dump");
+		wl->core_dump_mem_area = NULL;
+		goto out;
+	}
+
+	/* Allocate memory for Core Dump */
+	wl->core_dump = vmalloc(len);
+	if (!wl->core_dump) {
+		ret = -ENOMEM;
+		wl1271_error("failed to allocate core_dump memory area");
+		device_remove_bin_file(wl->dev, &core_dump_attr);
+		wl->core_dump_mem_area = NULL;
+		goto out;
+	}
+
+	wl->core_dump_size = len;
+
+out:
+	return ret;
+}
+
+static void wl12xx_core_dump_free(struct wl1271 *wl)
+{
+	if (wl->conf.core_dump.enable) {
+		device_remove_bin_file(wl->dev, &core_dump_attr);
+		vfree(wl->core_dump);
+		wl12xx_core_dump_init(wl);
+	}
+}
 
 static struct ieee80211_hw *wl1271_alloc_hw(void)
 {
@@ -6221,6 +6667,9 @@ static struct ieee80211_hw *wl1271_alloc_hw(void)
 	/* Apply default driver configuration. */
 	wl1271_conf_init(wl);
 
+	/* Initialize core_dump */
+	wl12xx_core_dump_init(wl);
+
 	order = get_order(WL1271_AGGR_BUFFER_SIZE);
 	wl->aggr_buf = (u8 *)__get_free_pages(GFP_KERNEL, order);
 	if (!wl->aggr_buf) {
@@ -6296,17 +6745,26 @@ static int wl1271_free_hw(struct wl1271 *wl)
 	wake_lock_destroy(&wl->rx_wake);
 	wake_lock_destroy(&wl->recovery_wake);
 #endif
-	/* Unblock any fwlog readers */
+	/* Unblock any fwlog and core_dump readers */
 	mutex_lock(&wl->mutex);
+
+	if (wl->conf.core_dump.enable) {
+		wl->core_dump_size = 0;
+		wake_up_interruptible_all(&wl->core_dump_waitq);
+	}
+
 	wl->fwlog_size = -1;
 	wake_up_interruptible_all(&wl->fwlog_waitq);
+
 	mutex_unlock(&wl->mutex);
 
+	wl12xx_core_dump_free(wl);
+
 	device_remove_bin_file(wl->dev, &fwlog_attr);
-
+	device_remove_file(wl->dev, &dev_attr_disable_sgi);
 	device_remove_file(wl->dev, &dev_attr_hw_pg_ver);
-
 	device_remove_file(wl->dev, &dev_attr_bt_coex_state);
+
 	kfree(wl->buffer_32);
 	kfree(wl->mbox);
 	kfree(wl->rx_mem_pool_addr);
@@ -6432,11 +6890,16 @@ static int __devinit wl12xx_probe(struct platform_device *pdev)
 	if (ret)
 		goto out_irq;
 
+	/* Allocate core_dump memory and creates sysfs file */
+	ret = wl12xx_core_dump_create(wl);
+	if (ret)
+		goto out_irq;
+
 	/* Create sysfs file to control bt coex state */
 	ret = device_create_file(wl->dev, &dev_attr_bt_coex_state);
 	if (ret < 0) {
 		wl1271_error("failed to create sysfs file bt_coex_state");
-		goto out_irq;
+		goto out_core_dump;
 	}
 
 	/* Create sysfs file to get HW PG version */
@@ -6446,20 +6909,33 @@ static int __devinit wl12xx_probe(struct platform_device *pdev)
 		goto out_bt_coex_state;
 	}
 
+	/* Create sysfs file to control Short GI disabling */
+	ret = device_create_file(wl->dev, &dev_attr_disable_sgi);
+	if (ret < 0) {
+		wl1271_error("failed to create sysfs file disable_sgi");
+		goto out_hw_pg_ver;
+	}
+
 	/* Create sysfs file for the FW log */
 	ret = device_create_bin_file(wl->dev, &fwlog_attr);
 	if (ret < 0) {
 		wl1271_error("failed to create sysfs file fwlog");
-		goto out_hw_pg_ver;
+		goto out_disable_sgi;
 	}
 
 	return 0;
+
+out_disable_sgi:
+	device_remove_file(wl->dev, &dev_attr_disable_sgi);
 
 out_hw_pg_ver:
 	device_remove_file(wl->dev, &dev_attr_hw_pg_ver);
 
 out_bt_coex_state:
 	device_remove_file(wl->dev, &dev_attr_bt_coex_state);
+
+out_core_dump:
+	wl12xx_core_dump_free(wl);
 
 out_irq:
 	free_irq(wl->irq, wl);
@@ -6523,8 +6999,14 @@ module_param_named(debug_level, wl12xx_debug_level, uint, S_IRUSR | S_IWUSR);
 MODULE_PARM_DESC(debug_level, "wl12xx debugging level");
 
 module_param_named(fwlog, fwlog_param, charp, 0);
-MODULE_PARM_DESC(keymap,
+MODULE_PARM_DESC(fwlog,
 		 "FW logger options: continuous, ondemand, dbgpins or disable");
+
+module_param(fwlog_mem_blocks, int, S_IRUSR | S_IWUSR);
+MODULE_PARM_DESC(fwlog_mem_blocks, "fwlog mem_blocks");
+
+module_param_named(core_dump, core_dump_enabled, bool, S_IRUSR | S_IWUSR);
+MODULE_PARM_DESC(core_dump, "Core Dump: 0-disable, 1-enable");
 
 module_param(bug_on_recovery, bool, S_IRUSR | S_IWUSR);
 MODULE_PARM_DESC(bug_on_recovery, "BUG() on fw recovery");
@@ -6535,6 +7017,9 @@ MODULE_PARM_DESC(fref, "FREF clock: 19.2, 26, 26x, 38.4, 38.4x, 52");
 module_param_named(tcxo, tcxo_param, charp, 0);
 MODULE_PARM_DESC(tcxo,
 		 "TCXO clock: 19.2, 26, 38.4, 52, 16.368, 32.736, 16.8, 33.6");
+
+module_param(ap_ch_is_dominant, bool, S_IRUSR | S_IWUSR);
+MODULE_PARM_DESC(ap_ch_is_dominant, "Sets the AP/GO channel as dominant");
 
 MODULE_LICENSE("GPL");
 MODULE_AUTHOR("Luciano Coelho <coelho@ti.com>");
