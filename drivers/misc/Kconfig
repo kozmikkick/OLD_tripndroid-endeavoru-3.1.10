@@ -400,6 +400,21 @@ config SENSORS_AK8975
 	  If you say yes here you get support for Asahi Kasei's
 	  orientation sensor AK8975.
 
+config SENSORS_AK8975_HTC
+	tristate "AK8975 compass support (HTC)"
+	default n
+	depends on I2C && MACH_ENDEAVORU
+	help
+	  Add support for the AK8975 sensor used in the HTC Endeavoru
+
+config SENSORS_AKM8975_PANA_GYRO
+        tristate "AKM8975 Compass Driver for Panasonic Gyroscope"
+	depends on MACH_ENDEAVORU && SENSORS_AK8975_HTC
+	default n        
+	depends on I2C
+        help
+         AKM8975 Compass Driver for Panasonic Gyroscope as found in the HTC Endeavoru.
+
 config SENSORS_NCT1008
 	tristate "ON Semiconductor Temperature Sensor"
 	default n
@@ -491,6 +506,29 @@ config BMP085
 	  To compile this driver as a module, choose M here: the
 	  module will be called bmp085.
 
+config SENSORS_BMA250
+	tristate "BMA250 acceleration sensor support"
+	depends on I2C && MACH_ENDEAVORU
+	default n
+	help
+	  BMA250 G-sensor Driver.
+
+config INPUT_CAPELLA_CM3629
+	tristate "CM3629 proximity and light sensor"
+	depends on MACH_ENDEAVORU
+	default n
+	help
+	  Say Y here to enable the CM3629 Short Distance Proximity
+	  Sensor with Ambient Light Sensor.
+
+config INPUT_ISL29028_CM3628
+	tristate "ISL29028(EVM) or CM3628(EVT) proximity and light sensor"
+	depends on MACH_ENDEAVORU
+	default n
+	help
+	  Say Y here to enable the CM3628 Short Distance Proximity
+	  Sensor with Ambient Light Sensor.
+
 config PCH_PHUB
 	tristate "Intel EG20T PCH/LAPIS Semicon IOH(ML7213/ML7223/ML7831) PHUB"
 	depends on PCI
@@ -567,6 +605,13 @@ config THERM_EST
 	default n
 	---help---
 	Thermal driver which estimates temperature based of other sensors.
+
+config TEGRA_VIBRATOR_ENR
+	bool "Vibrator driver for the HTC Endeavoru phone"
+	depends on ANDROID_TIMED_OUTPUT
+        default n
+        ---help---
+        Adds a vibrator driver
 
 config CABLE_DETECT_ACCESSORY
 	bool "USB accessory detection"
