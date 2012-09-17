@@ -2658,6 +2658,16 @@ int sdhci_add_host(struct sdhci_host *host)
 	    mmc_card_is_removable(mmc) && !(host->ops->get_cd))
 		mmc->caps |= MMC_CAP_NEEDS_POLL;
 
+#if defined(CONFIG_MACH_ENDEAVORU)
+	if(host->mmc->index==1) {
+	    mmc->caps |= MMC_CAP_NONREMOVABLE;
+	    mmc->caps |= MMC_CAP_DISABLE;
+	    mmc->caps |= MMC_CAP_POWER_OFF_CARD;
+	    mmc->caps |= MMC_PM_KEEP_POWER;
+	        host->flags |= MMC_PM_KEEP_POWER;
+	}
+#endif
+
 	/* UHS-I mode(s) supported by the host controller. */
 	if (host->version >= SDHCI_SPEC_300)
 		mmc->caps |= MMC_CAP_UHS_SDR12 | MMC_CAP_UHS_SDR25;
