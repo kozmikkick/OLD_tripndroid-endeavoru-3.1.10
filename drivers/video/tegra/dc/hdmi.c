@@ -1363,6 +1363,11 @@ bool tegra_dc_hdmi_detect_test(struct tegra_dc *dc, unsigned char *edid_ptr)
 	struct fb_monspecs specs;
 	struct tegra_dc_hdmi_data *hdmi = tegra_dc_get_outdata(dc);
 
+#ifdef CONFIG_MACH_ENDEAVORU
+	if (!dc)
+		return false;
+#endif
+
 	if (!hdmi || !edid_ptr) {
 		dev_err(&dc->ndev->dev, "HDMI test failed to get arguments.\n");
 		return false;
@@ -1473,8 +1478,9 @@ static void tegra_dc_hdmi_suspend(struct tegra_dc *dc)
 {
 	struct tegra_dc_hdmi_data *hdmi = tegra_dc_get_outdata(dc);
 	unsigned long flags;
-
+#ifndef CONFIG_MACH_ENDEAVORU
 	tegra_nvhdcp_suspend(hdmi->nvhdcp);
+#endif
 	spin_lock_irqsave(&hdmi->suspend_lock, flags);
 	hdmi->suspended = true;
 	spin_unlock_irqrestore(&hdmi->suspend_lock, flags);
@@ -1496,8 +1502,26 @@ static void tegra_dc_hdmi_resume(struct tegra_dc *dc)
 				   msecs_to_jiffies(30));
 
 	spin_unlock_irqrestore(&hdmi->suspend_lock, flags);
+#ifndef CONFIG_MACH_ENDEAVORU
+	tegra_nvhdcp_resume(hdmi->nvhdcp);
+#endif
+}
+
+#ifdef CONFIG_MACH_ENDEAVORU
+void hdmi_hdcp_early_suspend(void)
+{
+	struct tegra_dc *dc_hdmi = tegra_dc_get_dc(1);
+	struct tegra_dc_hdmi_data *hdmi = tegra_dc_get_outdata(dc_hdmi);
+	tegra_nvhdcp_suspend(hdmi->nvhdcp);
+}
+
+void hdmi_hdcp_late_resume(void)
+{
+	struct tegra_dc *dc_hdmi = tegra_dc_get_dc(1);
+	struct tegra_dc_hdmi_data *hdmi = tegra_dc_get_outdata(dc_hdmi);
 	tegra_nvhdcp_resume(hdmi->nvhdcp);
 }
+#endif
 
 #ifdef CONFIG_SWITCH
 static ssize_t underscan_show(struct device *dev,
