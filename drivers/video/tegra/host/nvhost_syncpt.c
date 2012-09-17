@@ -27,6 +27,10 @@
 #include "dev.h"
 #include "chip_support.h"
 
+#ifdef CONFIG_VIDEO_RAWCHIP
+#include <media/rawchip/Yushan_API.h>
+#endif
+
 #define MAX_SYNCPT_LENGTH 5
 /* Name of sysfs node for min and max value */
 static const char *min_name = "min";
@@ -223,6 +227,9 @@ int nvhost_syncpt_wait_timeout(struct nvhost_syncpt *sp, u32 id,
 				"%s: syncpoint id %d (%s) stuck waiting %d, timeout=%d\n",
 				 current->comm, id, syncpt_op().name(sp, id),
 				 thresh, timeout);
+#ifdef CONFIG_VIDEO_RAWCHIP
+				Yushan_dump_register();
+#endif
 			syncpt_op().debug(sp);
 			if (check_count == MAX_STUCK_CHECK_COUNT) {
 				if (low_timeout) {

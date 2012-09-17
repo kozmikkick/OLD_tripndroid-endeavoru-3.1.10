@@ -5,10 +5,13 @@ subdir-ccflags-y := -Werror
 # Makefile for the video capture/playback device drivers.
 #
 obj-y				+= avp/
+obj-y				+= rawchip/
 obj-$(CONFIG_TEGRA_MEDIASERVER)	+= mediaserver/
 obj-$(CONFIG_TEGRA_NVAVP)	+= nvavp/
 obj-$(CONFIG_TEGRA_DTV)		+= tegra_dtv.o
 obj-$(CONFIG_TEGRA_CAMERA)	+= tegra_camera.o
+obj-$(CONFIG_VIDEO_S5K3H2Y)	+= s5k3h2y.o
+obj-$(CONFIG_VIDEO_S5K6A1GX03)	+= s5k6a1gx03.o
 obj-$(CONFIG_VIDEO_AR0832)	+= ar0832_main.o
 obj-$(CONFIG_VIDEO_OV5650)	+= ov5650.o
 obj-$(CONFIG_VIDEO_OV5640)	+= ov5640.o
