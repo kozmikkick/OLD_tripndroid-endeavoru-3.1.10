@@ -33,11 +33,11 @@
 #include <linux/earlysuspend.h>
 #include <linux/leds.h>
 #include <linux/leds-lp5521.h>
-#include "../../arch/arm/mach-tegra/gpio-names.h"
 #include <linux/regulator/consumer.h>
 
 #define LP5521_MAX_LEDS			3	/* Maximum number of LEDs */
-#define LED_DEBUG				1
+#define LED_DEBUG			1
+
 #if LED_DEBUG
 	#define D(x...) printk(KERN_DEBUG "[LED]" x)
 	#define I(x...) printk(KERN_INFO "[LED]" x)		
@@ -48,8 +48,10 @@
 
 static int led_rw_delay;
 static int current_state, current_blink, current_time;
+static int current_currents, current_lut_coefficient, current_pwm_coefficient;
 static int current_mode, backlight_mode, suspend_mode, offtimer_mode;
 static int amber_mode;
+
 static struct regulator *regulator;
 static struct i2c_client *private_lp5521_client;
 static struct mutex	led_mutex;
@@ -83,8 +85,6 @@ struct lp5521_chip {
 static long unsigned int lp5521_led_tag_status = 0;
 static int __init lp5521_led_tag(char *tag)
 {
-	if (strlen(tag))
-		strict_strtoul(tag, 16, &lp5521_led_tag_status);
 	/* mapping */
 	if (lp5521_led_tag_status == 2)
 		lp5521_led_tag_status = DUAL_COLOR_BLINK;
@@ -148,7 +148,7 @@ static int i2c_write_block(struct i2c_client *client, uint8_t addr,
 		buf[i+1] = data[i];
 
 	mutex_lock(&cdata->led_i2c_rw_mutex);
-	mdelay(1);
+	hr_msleep(1);
 	for (retry = 0; retry < I2C_WRITE_RETRY_TIMES; retry++) {
 		if (i2c_transfer(client->adapter, msg, 1) == 1)
 			break;
@@ -172,30 +172,30 @@ static void lp5521_led_enable(struct i2c_client *client)
 	struct led_i2c_platform_data *pdata;
 
 	pdata = client->dev.platform_data;
-	// === led pin enable ===
+
 	ret = gpio_direction_output(pdata->ena_gpio, 1);
 	if (ret < 0) {
 		pr_err("[LED] %s: gpio_direction_output high failed %d\n", __func__, ret);
 		gpio_free(pdata->ena_gpio);
 	}
 	mutex_lock(&led_mutex);
-	// === enable CHIP_EN ===
+
 	data = 0x40;
 	ret = i2c_write_block(client, 0x00, &data, 1);
 	udelay(550);
-	// === configuration control in power save mode===
+	// configuration control in power save mode
 	data = 0x29;
 	ret = i2c_write_block(client, 0x08, &data, 1);
-	// === set red current to 9.5mA ===
+	// set red current to 9.5mA
 	data = (u8)95;
 	ret = i2c_write_block(client, 0x05, &data, 1);
-	// === set green current to 9.5mA ===
+	// set green current to 9.5mA
 	data = (u8)95;
 	ret = i2c_write_block(client, 0x06, &data, 1);
-	// === set blue current to 0.2mA ===
+	// set blue current to 0.2mA
 	data = (u8)2;
 	ret = i2c_write_block(client, 0x07, &data, 1);
-	// === set blue channel to direct PWM control mode ===
+	// set blue channel to direct PWM control mode
 	data = 0x03;
 	ret = i2c_write_block(client, 0x01, &data, 1);
 	mutex_unlock(&led_mutex);
@@ -211,11 +211,11 @@ static void lp5521_green_on(struct i2c_client *client)
 		lp5521_led_enable(client);
 	current_mode = 1;
 	mutex_lock(&led_mutex);
-	// === set green pwm to 255 ===
+	// set green pwm to 255
 	data = 0xff;
 	ret = i2c_write_block(client, 0x03, &data, 1);
 
-	// === run program with green direct control and blue direct program ===
+	// run program with green direct control and blue direct program
 	if ( backlight_mode == 2 )
 		data = 0x0e;
 	else
@@ -242,7 +242,7 @@ static void lp5521_green_blink(struct i2c_client *client)
 		lp5521_led_enable(client);
 	current_mode = 2;
 	mutex_lock(&led_mutex);
-	// === load program with green load program and blue direct program ===
+	// load program with green load program and blue direct program
 	if ( backlight_mode == 2 )
 		data = 0x06;
 	else
@@ -250,23 +250,22 @@ static void lp5521_green_blink(struct i2c_client *client)
 	ret = i2c_write_block(client, 0x01, &data, 1);
 	udelay(200);
 	
-	// === function blink ===
-	// === set pwm to 255 ===
+	// set pwm to 255
 	data = 0x40;
 	ret = i2c_write_block(client, 0x30, &data, 1);
 	data = 0xff;
 	ret = i2c_write_block(client, 0x31, &data, 1);
-	// === wait 0.064s ===
+	// wait 0.064s
 	data = 0x44;
 	ret = i2c_write_block(client, 0x32, &data, 1);
 	data = 0x00;
 	ret = i2c_write_block(client, 0x33, &data, 1);
-	// === set pwm to 0 ===
+	// set pwm to 0
 	data = 0x40;
 	ret = i2c_write_block(client, 0x34, &data, 1);
 	data = 0x00;
 	ret = i2c_write_block(client, 0x35, &data, 1);
-	// === wait 1.936s ===	
+	// wait 1.936s	
 	data = 0x7c;
 	ret = i2c_write_block(client, 0x36, &data, 1);
 	data = 0x00;
@@ -275,7 +274,7 @@ static void lp5521_green_blink(struct i2c_client *client)
 	ret = i2c_write_block(client, 0x38, &data, 1);
 	data = 0x00;
 	ret = i2c_write_block(client, 0x39, &data, 1);
-	// === clear register ===
+	// clear register
 	data = 0x00;
 	ret = i2c_write_block(client, 0x3a, &data, 1);
 	data = 0x00;
@@ -284,8 +283,7 @@ static void lp5521_green_blink(struct i2c_client *client)
 	ret = i2c_write_block(client, 0x3c, &data, 1);
 	data = 0x00;
 	ret = i2c_write_block(client, 0x3d, &data, 1);
-	
-	// === run program ===
+
 	if ( backlight_mode == 2 )
 		data = 0x0a;
 	else
@@ -313,11 +311,11 @@ static void lp5521_amber_on(struct i2c_client *client)
 		lp5521_led_enable(client);
 	current_mode = 3;
 	mutex_lock(&led_mutex);
-	// === set amber pwm to 255 ===
+	// set amber pwm to 255
 	data = 0xff;
 	ret = i2c_write_block(client, 0x02, &data, 1);
 
-	// === run program with amber direct control and blue direct program ===
+	// run program with amber direct control and blue direct program
 	if ( backlight_mode == 2 )
 		data = 0x32;
 	else
@@ -345,7 +343,7 @@ static void lp5521_amber_blink(struct i2c_client *client)
 	current_mode = 4;
 	amber_mode = 2;
 	mutex_lock(&led_mutex);
-	// === load program with amber load program and blue direct program ===
+
 	if ( backlight_mode == 2 )
 		data = 0x12;
 	else
@@ -353,34 +351,32 @@ static void lp5521_amber_blink(struct i2c_client *client)
 	ret = i2c_write_block(client, 0x01, &data, 1);
 	udelay(200);
 
-	// === function blink ===
-	// === wait 0.999s ===
+	// wait 0.999s
 	data = 0x7f;
 	ret = i2c_write_block(client, 0x10, &data, 1);
 	data = 0x00;
 	ret = i2c_write_block(client, 0x11, &data, 1);
-	// === set pwm to 255 ===
+	// set pwm to 255
 	data = 0x40;
 	ret = i2c_write_block(client, 0x12, &data, 1);
 	data = 0xff;
 	ret = i2c_write_block(client, 0x13, &data, 1);
-	// === wait 0.064s ===
+	// wait 0.064s
 	data = 0x44;
 	ret = i2c_write_block(client, 0x14, &data, 1);
 	data = 0x00;
 	ret = i2c_write_block(client, 0x15, &data, 1);
-	// === set pwm to 0 ===
+	// set pwm to 0
 	data = 0x40;
 	ret = i2c_write_block(client, 0x16, &data, 1);
 	data = 0x00;
 	ret = i2c_write_block(client, 0x17, &data, 1);
-	// === wait 0.935s ===	
+	// wait 0.935s	
 	data = 0x7c;
 	ret = i2c_write_block(client, 0x18, &data, 1);
 	data = 0x00;
 	ret = i2c_write_block(client, 0x19, &data, 1);
-	
-	// === run program ===
+
 	if ( backlight_mode == 2 )
 		data = 0x22;
 	else
@@ -407,7 +403,7 @@ static void lp5521_amber_low_blink(struct i2c_client *client)
 		lp5521_led_enable(client);
 	current_mode = 5;
 	mutex_lock(&led_mutex);
-	// === load program with amber load program and blue direct program ===
+	// load program with amber load program and blue direct program
 	if ( backlight_mode == 2 )
 		data = 0x12;
 	else
@@ -415,26 +411,26 @@ static void lp5521_amber_low_blink(struct i2c_client *client)
 	ret = i2c_write_block(client, 0x01, &data, 1);
 	udelay(200);
 		
-	// === function low blink ===
-	// === set pwm to 255 ===
+	// function low blink
+	// set pwm to 255
 	data = 0x40;
 	ret = i2c_write_block(client, 0x10, &data, 1);
 	data = 0xff;
 	ret = i2c_write_block(client, 0x11, &data, 1);
-	// === wait 0.999s ===
+	// wait 0.999s
 	data = 0x7f;
 	ret = i2c_write_block(client, 0x12, &data, 1);
 	data = 0x00;
 	ret = i2c_write_block(client, 0x13, &data, 1);
-	// === set pwm to 0 ===
+	// set pwm to 0
 	data = 0x40;
 	ret = i2c_write_block(client, 0x14, &data, 1);
 	data = 0x00;
 	ret = i2c_write_block(client, 0x15, &data, 1);
-	// === wait 0.999s ===	
+	// wait 0.999s	
 	data = 0x7f;
 	ret = i2c_write_block(client, 0x16, &data, 1);
-	// === clear register ===	
+	// clear register	
 	data = 0x00;
 	ret = i2c_write_block(client, 0x17, &data, 1);
 	data = 0x00;
@@ -442,7 +438,7 @@ static void lp5521_amber_low_blink(struct i2c_client *client)
 	data = 0x00;
 	ret = i2c_write_block(client, 0x19, &data, 1);
 	
-	// === run program ===
+	// run program
 	if ( backlight_mode == 2 )
 		data = 0x22;
 	else
@@ -469,7 +465,7 @@ static void lp5521_dual_color_blink(struct i2c_client *client)
 		lp5521_led_enable(client);
 	current_mode = 6;
 	mutex_lock(&led_mutex);
-	// === load program to with amber/green load program and blue direct program ===
+
 	if ( backlight_mode == 2 )
 		data = 0x16;
 	else
@@ -477,36 +473,34 @@ static void lp5521_dual_color_blink(struct i2c_client *client)
 	ret = i2c_write_block(client, 0x01, &data, 1);
 	udelay(200);
 
-
-	// === function fast blink ===
-	// === set pwm to 255 ===
+	// set pwm to 255
 	data = 0x40;
 	ret = i2c_write_block(client, 0x10, &data, 1);
 	data = 0xff;
 	ret = i2c_write_block(client, 0x11, &data, 1);
-	// === wait 0.064s ===
+	// wait 0.064s
 	data = 0x44;
 	ret = i2c_write_block(client, 0x12, &data, 1);
 	data = 0x00;
 	ret = i2c_write_block(client, 0x13, &data, 1);
-	// === set pwm to 0 ===
+	// set pwm to 0
 	data = 0x40;
 	ret = i2c_write_block(client, 0x14, &data, 1);
 	data = 0x00;
 	ret = i2c_write_block(client, 0x15, &data, 1);
-	// === wait 0.25s ===	
+	// wait 0.25s	
 	data = 0x50;
 	ret = i2c_write_block(client, 0x16, &data, 1);
 	data = 0x00;
 	ret = i2c_write_block(client, 0x17, &data, 1);
-	// === trigger sg, wg ===
+	// trigger sg, wg
 	data = 0xe1;
 	ret = i2c_write_block(client, 0x18, &data, 1);
 	data = 0x04;
 	ret = i2c_write_block(client, 0x19, &data, 1);
 	udelay(550);
 
-	// === trigger wr ===
+	// trigger wr
 	data = 0xe0;
 	ret = i2c_write_block(client, 0x30, &data, 1);
 	data = 0x80;
@@ -517,34 +511,34 @@ static void lp5521_dual_color_blink(struct i2c_client *client)
 	ret = i2c_write_block(client, 0x32, &data, 1);
 	data = 0xff;
 	ret = i2c_write_block(client, 0x33, &data, 1);
-	// === wait 0.064s ===
+	// wait 0.064s
 	data = 0x44;
 	ret = i2c_write_block(client, 0x34, &data, 1);
 	data = 0x00;
 	ret = i2c_write_block(client, 0x35, &data, 1);
-	// === set pwm to 0 ===
+	// set pwm to 0
 	data = 0x40;
 	ret = i2c_write_block(client, 0x36, &data, 1);
 	data = 0x00;
 	ret = i2c_write_block(client, 0x37, &data, 1);
-	// === wait 0.999s ===	
+	// wait 0.999s	
 	data = 0x7f;
 	ret = i2c_write_block(client, 0x38, &data, 1);
 	data = 0x00;
 	ret = i2c_write_block(client, 0x39, &data, 1);
-	// === wait 0.622s ===
+	// wait 0.622s
 	data = 0x68;
 	ret = i2c_write_block(client, 0x3a, &data, 1);
 	data = 0x00;
 	ret = i2c_write_block(client, 0x3b, &data, 1);	
-	// === trigger sr ===
+	// trigger sr
 	data = 0xe0;
 	ret = i2c_write_block(client, 0x3c, &data, 1);
 	data = 0x02;
 	ret = i2c_write_block(client, 0x3d, &data, 1);
 	udelay(550);
 	
-	// === run program ===
+	// run program
 	if ( backlight_mode == 2 )
 		data = 0x2a;
 	else
@@ -571,7 +565,7 @@ static void lp5521_backlight_on(struct i2c_client *client)
 		lp5521_led_enable(client);
 	backlight_mode = 1;
 	mutex_lock(&led_mutex);
-	// === set blue pwm to 60 ===
+
 	for( brightness = 1;brightness <= 6;brightness++) {
 		data = (u8)brightness*10;
 		ret = i2c_write_block(client, 0x04, &data, 1);
@@ -593,7 +587,7 @@ static void lp5521_backlight_off(struct i2c_client *client)
 	pdata = client->dev.platform_data;
 	backlight_mode = 0;
 	mutex_lock(&led_mutex);
-	// === set blue pwm to 0 ===
+
 	for( brightness = 6;brightness >= 0;brightness--) {
 		data = (u8)brightness*10;
 		ret = i2c_write_block(client, 0x04, &data, 1);
@@ -603,14 +597,12 @@ static void lp5521_backlight_off(struct i2c_client *client)
 	}
 	if( current_mode == 0 ) {
 		if( suspend_mode == 1 ) {
-			// === reset register ===
 			data = 0xff;
 			ret = i2c_write_block(client, 0x0d, &data, 1);
 			udelay(550);
 			gpio_direction_output(pdata->ena_gpio, 0);
 			I(" no LED command now in suspend, reset chip & gpio, no ack in i2c 0x32 is correct in LED chip lp5521.\n");
 		} else {
-			// === disable CHIP_EN ===
 			data = 0x00;
 			ret = i2c_write_block(client, 0x00, &data, 1);
 			udelay(550);
@@ -620,7 +612,6 @@ static void lp5521_backlight_off(struct i2c_client *client)
 	}
 	mutex_unlock(&led_mutex);
 	I(" %s ---\n" , __func__);
-
 }
 
 static void lp5521_dual_off(struct i2c_client *client)
@@ -632,7 +623,7 @@ static void lp5521_dual_off(struct i2c_client *client)
 	I(" %s +++\n" , __func__);
 	pdata = client->dev.platform_data;
 	mutex_lock(&led_mutex);
-	// === set green pwm to 0 ===
+	// set green pwm to 0
 	data = 0x00;
 	if( current_mode == 1 )
 		ret = i2c_write_block(client, 0x03, &data, 1);
@@ -652,14 +643,12 @@ static void lp5521_dual_off(struct i2c_client *client)
 		ret = i2c_write_block(client, 0x01, &data, 1);
 		udelay(200);
 		if( suspend_mode == 1 ) {
-			// === reset register ===
 			data = 0xff;
 			ret = i2c_write_block(client, 0x0d, &data, 1);
 			udelay(550);
 			gpio_direction_output(pdata->ena_gpio, 0);
 			I(" no LED command now in suspend, reset chip & gpio, no ack in i2c 0x32 is correct in LED chip lp5521.\n");
 		} else {
-			// === disable CHIP_EN ===
 			data = 0x00;
 			ret = i2c_write_block(client, 0x00, &data, 1);
 			udelay(550);
@@ -795,59 +784,59 @@ static void led_powerkey_work_func(struct work_struct *work)
 	mutex_lock(&led_mutex);
 	if (backlight_mode == 2) {
 		if(current_mode == 1) {
-			// === load program with green direct and blue load program ===
+			// load program with green direct and blue load program
 			data = 0x0d;
 			ret = i2c_write_block(client, 0x01, &data, 1);
 			udelay(200);
 		}else if( current_mode == 3 ) {
-			// === load program with red direct and blue load program ===
+			// load program with red direct and blue load program
 			data = 0x31;
 			ret = i2c_write_block(client, 0x01, &data, 1);
 			udelay(200);
 		}else if( current_mode == 2 ) {
-			// === load program with green run and blue load program ===
+			// load program with green run and blue load program
 			data = 0x09;
 			ret = i2c_write_block(client, 0x01, &data, 1);
 			udelay(200);
 		}else if( current_mode == 4 || current_mode == 5 ) {
-			// === load program with red run and blue load program ===
+			// load program with red run and blue load program
 			data = 0x21;
 			ret = i2c_write_block(client, 0x01, &data, 1);
 			udelay(200);
 		}else if( current_mode == 6 ) {
-			// === load program with red and green run and blue load program ===
+			// load program with red and green run and blue load program
 			data = 0x29;
 			ret = i2c_write_block(client, 0x01, &data, 1);
 			udelay(200);
 		}else {
-			// === load program with blue load program ===
+			// load program with blue load program
 			data = 0x01;
 			ret = i2c_write_block(client, 0x01, &data, 1);
 			udelay(200);
 		}
-		// === function virtual key blink ===
-		// === set pwm to 60 ===
+
+		// set pwm to 60
 		data = 0x40;
 		ret = i2c_write_block(client, 0x50, &data, 1);
 		data = (u8)60;
 		ret = i2c_write_block(client, 0x51, &data, 1);
-		// === wait 0.2s ===
+		// wait 0.2s
 		data = 0x4d;
 		ret = i2c_write_block(client, 0x52, &data, 1);
 		data = 0x00;
 		ret = i2c_write_block(client, 0x53, &data, 1);
-		// === set pwm to 0 ===
+		// set pwm to 0
 		data = 0x40;
 		ret = i2c_write_block(client, 0x54, &data, 1);
 		data = 0x00;
 		ret = i2c_write_block(client, 0x55, &data, 1);
-		// === wait 0.2s ===
+		// wait 0.2s
 		data = 0x4d;
 		ret = i2c_write_block(client, 0x56, &data, 1);
 		data = 0x00;
 		ret = i2c_write_block(client, 0x57, &data, 1);
 		if(current_mode == 1) {
-			// === run program with green direct and blue run program ===
+			// run program with green direct and blue run program
 			data = 0x0e;
 			ret = i2c_write_block(client, 0x01, &data, 1);
 			udelay(200);
@@ -855,7 +844,7 @@ static void led_powerkey_work_func(struct work_struct *work)
 			ret = i2c_write_block(client, 0x00, &data, 1);
 			udelay(550);
 		}else if( current_mode == 3 ) {
-			// === run program with red direct and blue run program ===
+			// run program with red direct and blue run program
 			data = 0x32;
 			ret = i2c_write_block(client, 0x01, &data, 1);
 			udelay(200);
@@ -863,7 +852,7 @@ static void led_powerkey_work_func(struct work_struct *work)
 			ret = i2c_write_block(client, 0x00, &data, 1);
 			udelay(550);
 		}else if( current_mode == 2 ) {
-			// === run program with green run and blue run program ===
+			// run program with green run and blue run program
 			data = 0x0a;
 			ret = i2c_write_block(client, 0x01, &data, 1);
 			udelay(200);
@@ -871,7 +860,7 @@ static void led_powerkey_work_func(struct work_struct *work)
 			ret = i2c_write_block(client, 0x00, &data, 1);
 			udelay(550);
 		}else if( current_mode == 4 || current_mode == 5 ) {
-			// === run program with red run and blue run program ===
+			// run program with red run and blue run program
 			data = 0x22;
 			ret = i2c_write_block(client, 0x01, &data, 1);
 			udelay(200);
@@ -879,7 +868,7 @@ static void led_powerkey_work_func(struct work_struct *work)
 			ret = i2c_write_block(client, 0x00, &data, 1);
 			udelay(550);
 		}else if( current_mode == 6 ) {
-			// === run program with red and green run and blue run program ===
+			// run program with red and green run and blue run program
 			data = 0x2a;
 			ret = i2c_write_block(client, 0x01, &data, 1);
 			udelay(200);
@@ -887,7 +876,7 @@ static void led_powerkey_work_func(struct work_struct *work)
 			ret = i2c_write_block(client, 0x00, &data, 1);
 			udelay(550);
 		}else {
-			// === run program with blue load program ===
+			// run program with blue load program
 			data = 0x02;
 			ret = i2c_write_block(client, 0x01, &data, 1);
 			udelay(200);
@@ -896,9 +885,9 @@ static void led_powerkey_work_func(struct work_struct *work)
 			udelay(550);
 		}
 	}else if (backlight_mode == 0) {
-		// === set blue channel to direct PWM control mode ===
+		// set blue channel to direct PWM control mode
 		if(current_mode == 1) {
-			// === run program with green direct and blue direct program ===
+			// run program with green direct and blue direct program
 			data = 0x0f;
 			ret = i2c_write_block(client, 0x01, &data, 1);
 			udelay(200);
@@ -908,7 +897,7 @@ static void led_powerkey_work_func(struct work_struct *work)
 			data = 0x00;
 			ret = i2c_write_block(client, 0x04, &data, 1);
 		}else if( current_mode == 3 ) {
-			// === run program with red direct and blue direct program ===
+			// run program with red direct and blue direct program
 			data = 0x33;
 			ret = i2c_write_block(client, 0x01, &data, 1);
 			udelay(200);
@@ -918,7 +907,7 @@ static void led_powerkey_work_func(struct work_struct *work)
 			data = 0x00;
 			ret = i2c_write_block(client, 0x04, &data, 1);
 		}else if( current_mode == 2 ) {
-			// === run program with green run and blue direct program ===
+			// run program with green run and blue direct program
 			data = 0x0b;
 			ret = i2c_write_block(client, 0x02, &data, 1);
 			udelay(200);
@@ -928,7 +917,7 @@ static void led_powerkey_work_func(struct work_struct *work)
 			data = 0x00;
 			ret = i2c_write_block(client, 0x04, &data, 1);
 		}else if( current_mode == 4 || current_mode == 5 ) {
-			// === run program with red run and blue direct program ===
+			// run program with red run and blue direct program
 			data = 0x23;
 			ret = i2c_write_block(client, 0x02, &data, 1);
 			udelay(200);
@@ -936,7 +925,7 @@ static void led_powerkey_work_func(struct work_struct *work)
 			ret = i2c_write_block(client, 0x00, &data, 1);
 			udelay(500);
 		}else if( current_mode == 6 ) {
-			// === run program with red and green run and blue direct program ===
+			// run program with red and green run and blue direct program
 			data = 0x2b;
 			ret = i2c_write_block(client, 0x02, &data, 1);
 			udelay(200);
@@ -946,7 +935,7 @@ static void led_powerkey_work_func(struct work_struct *work)
 			data = 0x00;
 			ret = i2c_write_block(client, 0x04, &data, 1);
 		}else {
-			// === run program with blue direct program ===
+			// run program with blue direct program
 			data = 0x03;
 			ret = i2c_write_block(client, 0x02, &data, 1);
 			udelay(200);
@@ -955,7 +944,7 @@ static void led_powerkey_work_func(struct work_struct *work)
 			udelay(500);
 			data = 0x00;
 			ret = i2c_write_block(client, 0x04, &data, 1);
-			// === disable CHIP_EN ===
+			// disable CHIP_EN
 			data = 0x00;
 			ret = i2c_write_block(client, 0x00, &data, 1);
 			udelay(550);
@@ -1010,7 +999,7 @@ static ssize_t lp5521_led_off_timer_store(struct device *dev,
 	min = -1;
 	sec = -1;
 	sscanf(buf, "%d %d", &min, &sec);
-	I(" %s +++, min = %d, sec = %d\n" , __func__, min, sec);
+	I(" %s , min = %d, sec = %d\n" , __func__, min, sec);
 	if (min < 0 || min > 255)
 		return -EINVAL;
 	if (sec < 0 || sec > 255)
@@ -1066,7 +1055,7 @@ static ssize_t lp5521_led_blink_store(struct device *dev,
 
 	val = -1;
 	sscanf(buf, "%d", &val);
-	I(" %s +++, val = %d\n" , __func__, val);
+	I(" %s , val = %d\n" , __func__, val);
 	if (val < 0 )
 		val = 0;
 	else if (val > 255)
@@ -1089,7 +1078,7 @@ static ssize_t lp5521_led_blink_store(struct device *dev,
 		} else if (!strcmp(ldata->cdev.name, "button-backlight")) {
 			if ( backlight_mode != 2 )
 				lp5521_led_current_set_for_key(1);
-		} 
+		}
 	} else {
 		if(!strcmp(ldata->cdev.name, "amber"))	 {
 			if( amber_mode == 2 )
@@ -1112,24 +1101,162 @@ static ssize_t lp5521_led_blink_store(struct device *dev,
 static DEVICE_ATTR(blink, 0644, lp5521_led_blink_show,
 					lp5521_led_blink_store);
 
+static ssize_t lp5521_led_currents_show(struct device *dev,
+				  struct device_attribute *attr, char *buf)
+{
+	return sprintf(buf, "%d\n", current_currents);
+}
+
+static ssize_t lp5521_led_currents_store(struct device *dev,
+				   struct device_attribute *attr,
+				   const char *buf, size_t count)
+{
+	struct i2c_client *client = private_lp5521_client;
+	struct led_classdev *led_cdev;
+	struct lp5521_led *ldata;
+	uint8_t data = 0x00;
+	int val, ret;
+
+	sscanf(buf, "%d", &val);
+	I(" %s , val = %d\n" , __func__, val);
+	if (val < 0 || val > 255)
+		return -EINVAL;
+	current_currents = val;
+	led_cdev = (struct led_classdev *)dev_get_drvdata(dev);
+	ldata = container_of(led_cdev, struct lp5521_led, cdev);
+
+	mutex_lock(&led_mutex);
+	// run program with all direct program
+	data = 0x3f;
+	ret = i2c_write_block(client, 0x01, &data, 1);
+	udelay(200);
+	data = 0x40;
+	ret = i2c_write_block(client, 0x00, &data, 1);
+	udelay(500);
+	// set pwm to all
+	data = (u8)val;
+	if(!strcmp(ldata->cdev.name, "green"))	 {
+		ret = i2c_write_block(client, 0x06, &data, 1);
+	} else if (!strcmp(ldata->cdev.name, "amber")) {
+		ret = i2c_write_block(client, 0x05, &data, 1);
+	} else if (!strcmp(ldata->cdev.name, "button-backlight")) {
+		ret = i2c_write_block(client, 0x07, &data, 1);
+	}
+	mutex_unlock(&led_mutex);
+
+	return count;
+}
+
+static DEVICE_ATTR(currents, 0644, lp5521_led_currents_show,
+					lp5521_led_currents_store);
+
+static ssize_t lp5521_led_pwm_coefficient_show(struct device *dev,
+				  struct device_attribute *attr, char *buf)
+{
+	return sprintf(buf, "%d\n", current_pwm_coefficient);
+}
+
+static ssize_t lp5521_led_pwm_coefficient_store(struct device *dev,
+				   struct device_attribute *attr,
+				   const char *buf, size_t count)
+{
+	struct i2c_client *client = private_lp5521_client;
+	struct led_classdev *led_cdev;
+	struct lp5521_led *ldata;
+	uint8_t data = 0x00;
+	int val, ret;
+
+	sscanf(buf, "%d", &val);
+	I(" %s , val = %d\n" , __func__, val);
+	if (val < 0 || val > 100)
+		return -EINVAL;
+	current_pwm_coefficient = val;
+	led_cdev = (struct led_classdev *)dev_get_drvdata(dev);
+	ldata = container_of(led_cdev, struct lp5521_led, cdev);
+
+	mutex_lock(&led_mutex);
+	// run program with all direct program
+	data = 0x3f;
+	ret = i2c_write_block(client, 0x01, &data, 1);
+	udelay(200);
+	data = 0x40;
+	ret = i2c_write_block(client, 0x00, &data, 1);
+	udelay(500);
+	// set current to amber & green
+	data = (u8)val*255/100;
+	if(!strcmp(ldata->cdev.name, "green"))	 {
+		ret = i2c_write_block(client, 0x03, &data, 1);
+	} else if (!strcmp(ldata->cdev.name, "amber")) {
+		ret = i2c_write_block(client, 0x02, &data, 1);
+	}
+	mutex_unlock(&led_mutex);
+
+	return count;
+}
+
+static DEVICE_ATTR(pwm_coefficient, 0644, lp5521_led_pwm_coefficient_show,
+					lp5521_led_pwm_coefficient_store);
+
+
+static ssize_t lp5521_led_lut_coefficient_show(struct device *dev,
+				  struct device_attribute *attr, char *buf)
+{
+	return sprintf(buf, "%d\n", current_lut_coefficient);
+}
+
+static ssize_t lp5521_led_lut_coefficient_store(struct device *dev,
+				   struct device_attribute *attr,
+				   const char *buf, size_t count)
+{
+	struct i2c_client *client = private_lp5521_client;
+	struct led_classdev *led_cdev;
+	struct lp5521_led *ldata;
+	uint8_t data = 0x00;
+	int val, ret;
+
+	sscanf(buf, "%d", &val);
+	I(" %s , val = %d\n" , __func__, val);
+	if (val < 0 || val > 100)
+		return -EINVAL;
+	current_lut_coefficient = val;
+	led_cdev = (struct led_classdev *)dev_get_drvdata(dev);
+	ldata = container_of(led_cdev, struct lp5521_led, cdev);
+
+	mutex_lock(&led_mutex);
+	// run program with all direct program
+	data = 0x3f;
+	ret = i2c_write_block(client, 0x01, &data, 1);
+	udelay(200);
+	data = 0x40;
+	ret = i2c_write_block(client, 0x00, &data, 1);
+	udelay(500);
+	// set current to blue(button)
+	data = (u8)val*255/100;
+	if(!strcmp(ldata->cdev.name, "button-backlight")) {
+		ret = i2c_write_block(client, 0x04, &data, 1);
+	}
+	mutex_unlock(&led_mutex);
+
+	return count;
+}
+
+static DEVICE_ATTR(lut_coefficient, 0644, lp5521_led_lut_coefficient_show,
+					lp5521_led_lut_coefficient_store);
+
 static void lp5521_led_early_suspend(struct early_suspend *handler)
 {
 	struct i2c_client *client = private_lp5521_client;
-	
-	printk("[LED][SUSPEND] lp5521_led_early_suspend +++\n");
+
 	suspend_mode = 1;
 	if( backlight_mode == 1 )
 		lp5521_backlight_off(client);
 	else if ( backlight_mode == 2 )
 		lp5521_led_current_set_for_key(0);
-	printk("[LED][SUSPEND] lp5521_led_early_suspend ---\n");
 }
 
 static void lp5521_led_late_resume(struct early_suspend *handler)
 {
-	printk("[LED][RESUME] lp5521_led_late_resume +++\n");
 	suspend_mode = 0;
-	printk("[LED][RESUME] lp5521_led_late_resume ---\n");
 }
 
 static int lp5521_led_probe(struct i2c_client *client
@@ -1143,7 +1270,7 @@ static int lp5521_led_probe(struct i2c_client *client
 
 	printk("[LED][PROBE] led driver probe +++\n");
 	
-	// === init platform and client data ===
+	// init platform and client data
 	cdata = kzalloc(sizeof(struct lp5521_chip), GFP_KERNEL);
 	if (!cdata) {
 		ret = -ENOMEM;
@@ -1161,7 +1288,7 @@ static int lp5521_led_probe(struct i2c_client *client
 	}
 	led_rw_delay = 5;
 
-	// === led enable pin ===
+	// led enable pin
 	ret = gpio_request(pdata->ena_gpio, "led_enable");
 	if (ret < 0) {
 		pr_err("[LED] %s: gpio_request failed %d\n", __func__, ret);
@@ -1175,7 +1302,7 @@ static int lp5521_led_probe(struct i2c_client *client
 	}   
    	tegra_gpio_enable(pdata->ena_gpio);
 
-	// === led trigger signal pin ===
+	// led trigger signal pin
 	ret = gpio_request(pdata->tri_gpio, "led_trigger");
 	if (ret < 0) {
 		pr_err("[LED] %s: gpio_request failed %d\n", __func__, ret);
@@ -1212,8 +1339,23 @@ static int lp5521_led_probe(struct i2c_client *client
 		}
 		ret = device_create_file(cdata->leds[i].cdev.dev, &dev_attr_off_timer);
 		if (ret < 0) {
-			pr_err("%s: failed on create attr blink [%d]\n", __func__, i);
+			pr_err("%s: failed on create attr off_timer [%d]\n", __func__, i);
 			goto err_register_attr_off_timer;
+		}
+		ret = device_create_file(cdata->leds[i].cdev.dev, &dev_attr_currents);
+		if (ret < 0) {
+			pr_err("%s: failed on create attr currents [%d]\n", __func__, i);
+			goto err_register_attr_currents;
+		}
+		ret = device_create_file(cdata->leds[i].cdev.dev, &dev_attr_pwm_coefficient);
+		if (ret < 0) {
+			pr_err("%s: failed on create attr pwm_coefficient [%d]\n", __func__, i);
+			goto err_register_attr_pwm_coefficient;
+		}
+		ret = device_create_file(cdata->leds[i].cdev.dev, &dev_attr_lut_coefficient);
+		if (ret < 0) {
+			pr_err("%s: failed on create attr lut_coefficient [%d]\n", __func__, i);
+			goto err_register_attr_lut_coefficient;
 		}
 		INIT_WORK(&cdata->leds[i].led_work, led_work_func);
 		alarm_init(&cdata->leds[i].led_alarm,
@@ -1222,7 +1364,7 @@ static int lp5521_led_probe(struct i2c_client *client
 	}
 	INIT_WORK(&led_powerkey_work, led_powerkey_work_func);
 
-	// === create device node ===
+	// create device node
 	ret = device_create_file(&client->dev, &dev_attr_behavior);
 	if (ret) {
 		dev_err(&client->dev, "device_create_file failed\n");
@@ -1245,8 +1387,8 @@ static int lp5521_led_probe(struct i2c_client *client
 #endif
 	if (lp5521_led_tag_status) {
 		led_behavior(client, lp5521_led_tag_status);
-	} else {
-		// === disable CHIP_EN ===
+	} 
+	else {
 		data = 0x00;
 		ret = i2c_write_block(client, 0x00, &data, 1);
 		udelay(550);
@@ -1259,13 +1401,25 @@ static int lp5521_led_probe(struct i2c_client *client
 err_fun_init:
 	device_remove_file(&client->dev, &dev_attr_behavior);
 	kfree(cdata);
-err_register_attr_blink:
+err_register_attr_lut_coefficient:
 	for (i = 0; i < pdata->num_leds; i++) {
-		device_remove_file(cdata->leds[i].cdev.dev,&dev_attr_blink);
+		device_remove_file(cdata->leds[i].cdev.dev,&dev_attr_lut_coefficient);
+	}
+err_register_attr_pwm_coefficient:
+	for (i = 0; i < pdata->num_leds; i++) {
+		device_remove_file(cdata->leds[i].cdev.dev,&dev_attr_pwm_coefficient);
+	}
+err_register_attr_currents:
+	for (i = 0; i < pdata->num_leds; i++) {
+		device_remove_file(cdata->leds[i].cdev.dev,&dev_attr_currents);
 	}
 err_register_attr_off_timer:
 	for (i = 0; i < pdata->num_leds; i++) {
 		device_remove_file(cdata->leds[i].cdev.dev,&dev_attr_off_timer);
+	}
+err_register_attr_blink:
+	for (i = 0; i < pdata->num_leds; i++) {
+		device_remove_file(cdata->leds[i].cdev.dev,&dev_attr_blink);
 	}
 err_create_work_queue:
 	kfree(pdata);
@@ -1295,6 +1449,9 @@ static int __devexit lp5521_led_remove(struct i2c_client *client)
 	for (i = 0; i < pdata->num_leds; i++) {
 		device_remove_file(cdata->leds[i].cdev.dev,&dev_attr_blink);
 		device_remove_file(cdata->leds[i].cdev.dev,&dev_attr_off_timer);
+		device_remove_file(cdata->leds[i].cdev.dev,&dev_attr_currents);
+		device_remove_file(cdata->leds[i].cdev.dev,&dev_attr_pwm_coefficient);
+		device_remove_file(cdata->leds[i].cdev.dev,&dev_attr_lut_coefficient);
 		led_classdev_unregister(&cdata->leds[i].cdev);
 	}
 	destroy_workqueue(g_led_work_queue);
@@ -1304,12 +1461,10 @@ static int __devexit lp5521_led_remove(struct i2c_client *client)
 	return 0;
 }
 
-// === LED driver info ===
 static const struct i2c_device_id led_i2c_id[] = {
 	{ LED_I2C_NAME, 0 },
 	{}
 };
-
 
 static struct i2c_driver led_i2c_driver = {
 	.driver = {
@@ -1340,4 +1495,3 @@ module_exit(lp5521_led_exit);
 
 MODULE_AUTHOR("<ShihHao_Shiung@htc.com>, <Dirk_Chang@htc.com>");
 MODULE_DESCRIPTION("LP5521 LED driver");
-
