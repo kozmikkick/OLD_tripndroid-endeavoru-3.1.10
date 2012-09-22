@@ -138,7 +138,7 @@ static struct tegra_sdhci_platform_data tegra_sdhci_platform_data2 = {
 		.register_status_notify	= enterprise_wifi_status_register,
 //		.embedded_sdio = &embedded_sdio_data0,
 		.built_in = 1,
-		.ocr_mask = MMC_OCR_1V8_MASK,
+//		.ocr_mask = MMC_OCR_1V8_MASK,
 	},
 	.cd_gpio = -1,
 	.wp_gpio = -1,
