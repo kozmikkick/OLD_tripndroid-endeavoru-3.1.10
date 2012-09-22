@@ -652,7 +652,7 @@ static struct tegra_suspend_platform_data enterprise_suspend_data = {
 	.core_off_timer = 0,
 	.corereq_high	= true,
 	.sysclkreq_high	= true,
-	.cpu_lp2_min_residency = 9000,
+	.cpu_lp2_min_residency = 2000,
 	.board_suspend = enterprise_board_suspend,
 	.board_resume = enterprise_board_resume,
 };
