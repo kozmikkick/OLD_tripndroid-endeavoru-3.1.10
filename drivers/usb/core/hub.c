@@ -30,6 +30,8 @@
 
 #include "usb.h"
 
+#define MODULE_NAME "[USBHHUB] "
+
 /* if we are in debug mode, always announce new devices */
 #ifdef DEBUG
 #ifndef CONFIG_USB_ANNOUNCE_NEW_DEVICES
@@ -872,8 +874,9 @@ static void hub_activate(struct usb_hub *hub, enum hub_activation_type type)
 			schedule_delayed_work(&hub->init_work,
 					msecs_to_jiffies(delay));
 			return;		/* Continues at init3: below */
-		} else {
-			msleep(delay);
+		}
+		else {
+			pr_info(MODULE_NAME "%s: debounce delay sleep(100msec) marked\n", __func__);
 		}
 	}
  init3:
@@ -2049,8 +2052,6 @@ static int hub_port_wait_reset(struct usb_hub *hub, int port1,
 	for (delay_time = 0;
 			delay_time < HUB_RESET_TIMEOUT;
 			delay_time += delay) {
-		/* wait to give the device a chance to reset */
-		msleep(delay);
 
 		/* read and decode port status */
 		ret = hub_port_status(hub, port1, &portstatus, &portchange);
@@ -2125,7 +2126,11 @@ static int hub_port_reset(struct usb_hub *hub, int port1,
 		switch (status) {
 		case 0:
 			/* TRSTRCY = 10 ms; plus some extra */
+#ifdef CONFIG_MACH_ENDEAVORU
+			msleep(10);
+#else
 			msleep(10 + 40);
+#endif
 			update_devnum(udev, 0);
 			if (hcd->driver->reset_device) {
 				status = hcd->driver->reset_device(hcd, udev);
@@ -2166,7 +2171,8 @@ static int hub_port_reset(struct usb_hub *hub, int port1,
 static int hub_port_warm_reset(struct usb_hub *hub, int port)
 {
 	int ret;
-	u16 portstatus, portchange;
+	u16 portstatus = 0;
+	u16 portchange = 0;
 
 	if (!hub_is_superspeed(hub->hdev)) {
 		dev_err(hub->intfdev, "only USB3 hub support warm reset\n");
@@ -2504,7 +2510,8 @@ int usb_port_resume(struct usb_device *udev, pm_message_t msg)
 	struct usb_hub	*hub = hdev_to_hub(udev->parent);
 	int		port1 = udev->portnum;
 	int		status;
-	u16		portchange, portstatus;
+	u16		portchange = 0;
+	u16		portstatus = 0;
 
 	/* Skip the initial Clear-Suspend step for a remote wakeup */
 	status = hub_port_status(hub, port1, &portstatus, &portchange);
