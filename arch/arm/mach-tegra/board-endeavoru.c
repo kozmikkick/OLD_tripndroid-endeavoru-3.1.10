@@ -84,6 +84,10 @@
 #include <linux/usb/android_composite.h>
 #endif
 
+#ifdef CONFIG_CPU_FREQ_GOV_ONDEMAND_2_PHASE
+int set_two_phase_freq(int cpufreq);
+#endif
+
 #define PMC_WAKE_STATUS 0x14
 #define POWER_WAKEUP_ENR 7
 
@@ -1575,6 +1579,9 @@ static void __init tegra_endeavoru_init(void)
 	enterprise_uart_init();
 	enterprise_spi_init();
 	enterprise_usb_init();
+#ifdef CONFIG_CPU_FREQ_GOV_ONDEMAND_2_PHASE
+        set_two_phase_freq(1000000);
+#endif
 	tegra_ram_console_debug_init();
 
 	platform_add_devices(enterprise_devices, ARRAY_SIZE(enterprise_devices));
